@@ -204,8 +204,13 @@ output nests as `web/apps/web/server.js` in this monorepo (static/public
 copy next to it, PM2 `cwd` is `/opt/babuki/web/apps/web`) and needs
 `HOSTNAME=127.0.0.1` or it binds the machine hostname instead of the
 address Nginx proxies to; `NEXT_PUBLIC_*` values are inlined at *build*
-time (deploy.sh passes them to `npm run build` — the box's `.env` can't
-supply them afterwards); nothing in `apps/api` loads a `.env`, so PM2
+time (the box's `.env` can't supply them afterwards), and deploy.sh
+writes them to a gitignored `apps/web/.env.production.local` for the build
+rather than passing them as inline env vars — under WSL there is no Linux
+node, `npm` is the *Windows* one via interop, and shell env vars never
+reach it, so the inline form silently shipped a `localhost:8000` bundle;
+deploy.sh also greps the built bundle and aborts if the API URL isn't in
+it; nothing in `apps/api` loads a `.env`, so PM2
 starts it with `node --env-file=.env --import tsx`; `scp -r dir
 host:existing_dir` nests instead of replacing, so deploy.sh wipes the
 replaceable directories and copies into their parents. `/opt/babuki`

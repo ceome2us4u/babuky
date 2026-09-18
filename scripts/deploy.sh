@@ -84,10 +84,20 @@ echo "==> [1/7] build the standalone Next.js output (apps/api ships as source â€
 # "http://localhost:8000" fallback, which would have shipped to production.
 # Start from a clean .next so no stale (un-inlined) output can be reused.
 rm -rf "$ROOT/apps/web/.next"
-(cd "$ROOT/apps/web" && npm install && \
-	NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
-	NEXT_PUBLIC_RAZORPAY_KEY_ID="$NEXT_PUBLIC_RAZORPAY_KEY_ID" \
-	npm run build)
+# Root cause of that first bad bundle (confirmed live 2026-09-18): under WSL
+# there is no Linux node, so `npm` resolves to the WINDOWS npm via interop
+# (/mnt/c/Program Files/nodejs/npm), and env vars set in this shell never
+# reach a Windows process (WSLENV is empty). So passing them inline, as
+# above, silently does nothing. A file is read by Next no matter which OS's
+# node runs the build. `.env*.local` is gitignored; removed again right after.
+BUILD_ENV_FILE="$ROOT/apps/web/.env.production.local"
+trap 'rm -f "$BUILD_ENV_FILE"' EXIT
+cat > "$BUILD_ENV_FILE" <<EOF
+NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+NEXT_PUBLIC_RAZORPAY_KEY_ID=$NEXT_PUBLIC_RAZORPAY_KEY_ID
+EOF
+(cd "$ROOT/apps/web" && npm install && npm run build)
+rm -f "$BUILD_ENV_FILE"
 # Verify rather than trust: a first deploy shipped a bundle that still had
 # the http://localhost:8000 fallback even though this step ran. If the API
 # URL isn't literally in the built client JS, stop before shipping it.

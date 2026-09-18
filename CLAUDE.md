@@ -78,6 +78,14 @@ PowerShell↔bash boundary:
   ```powershell
   bash -c "SSH_KEY=/mnt/c/Users/prass/.ssh/babuki-app-box bash scripts/deploy.sh 13.204.187.141"
   ```
+- **WSL has no Linux `node`/`npm` here** — `type -a npm` →
+  `/mnt/c/Program Files/nodejs/npm`, the *Windows* one via interop. Env
+  vars set in the bash script (`VAR=x npm run build`) never reach it
+  (`WSLENV` is empty). Confirmed live: `NEXT_PUBLIC_API_URL` passed inline
+  to `npm run build` was silently ignored and the bundle shipped with the
+  `localhost:8000` fallback. Anything a Node process must see from
+  `deploy.sh` goes in a file (`apps/web/.env.production.local`), never an
+  inline env var — and verify the built output, don't trust the step.
 - Before assuming which shell a `bash`/env-var problem is happening in,
   check rather than guess a second time:
   ```powershell
