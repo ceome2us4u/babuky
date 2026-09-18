@@ -82,10 +82,19 @@ echo "==> [1/7] build the standalone Next.js output (apps/api ships as source â€
 # setting them in the box's .env afterwards does nothing. Confirmed by
 # grepping a build made without them: the bundle contained the
 # "http://localhost:8000" fallback, which would have shipped to production.
+# Start from a clean .next so no stale (un-inlined) output can be reused.
+rm -rf "$ROOT/apps/web/.next"
 (cd "$ROOT/apps/web" && npm install && \
 	NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
 	NEXT_PUBLIC_RAZORPAY_KEY_ID="$NEXT_PUBLIC_RAZORPAY_KEY_ID" \
 	npm run build)
+# Verify rather than trust: a first deploy shipped a bundle that still had
+# the http://localhost:8000 fallback even though this step ran. If the API
+# URL isn't literally in the built client JS, stop before shipping it.
+if ! grep -rqF "$NEXT_PUBLIC_API_URL" "$ROOT/apps/web/.next/static"; then
+	echo "ERROR: $NEXT_PUBLIC_API_URL was not inlined into the client bundle - refusing to deploy a frontend that would call localhost." >&2
+	exit 1
+fi
 
 echo "==> [2/7] ship both apps + nginx config to $HOST"
 # /opt is root-owned by default â€” ubuntu can't mkdir there directly, and
@@ -180,6 +189,10 @@ REMOTE
 
 echo "==> [6/7] pm2 (re)start both apps, reload nginx"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd $REMOTE_DIR && pm2 startOrRestart ecosystem.config.js --update-env && pm2 save"
+# Boot hook: without this the site stays down after a reboot even though
+# `pm2 save` recorded the process list. Idempotent; a failure here must not
+# fail an otherwise-good deploy, so it only warns.
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'sudo env PATH="$PATH:/usr/bin" pm2 startup systemd -u ubuntu --hp /home/ubuntu >/dev/null' || echo "  WARN: pm2 startup hook not installed - site will not auto-start after a reboot"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo nginx -t && sudo systemctl reload-or-restart nginx"
 
 echo "==> [7/7] smoke test"
