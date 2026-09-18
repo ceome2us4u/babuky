@@ -23,3 +23,15 @@ resource "aws_route53_record" "apex" {
   ttl     = 300
   records = [aws_eip.babuki_app_box.public_ip]
 }
+
+# The wildcard record above already resolves api.babuki.com (it's covered
+# by *.babuki.com), but an explicit record documents the backend service's
+# own address and decouples it from the wildcard if that ever changes —
+# same *.babuki.com wildcard TLS cert covers it either way.
+resource "aws_route53_record" "api" {
+  zone_id = data.aws_route53_zone.babuki.zone_id
+  name    = "api.babuki.com"
+  type    = "A"
+  ttl     = 300
+  records = [aws_eip.babuki_app_box.public_ip]
+}

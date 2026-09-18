@@ -1,17 +1,31 @@
-// PM2 process config for Babuki's Next.js app. Assumes the standalone build
-// output (apps/web/.next/standalone, plus .next/static and public copied
-// alongside it — same layout as apps/web/Dockerfile) has been deployed to
-// BABUKI_DEPLOY_DIR on the box by scripts/deploy.sh. Env vars come from a
-// .env file placed at <deploy dir>/.env (never committed — see
-// .env.example), which Next.js loads automatically at boot.
+// PM2 process config — two apps, mirroring Home's separate-service shape:
+// babuki-api (apps/api, Hono, port 8000) and babuki-web (apps/web,
+// Next.js standalone build, port 3000), both deployed by scripts/deploy.sh.
+// Each reads its own .env file (never committed — see .env.example),
+// placed alongside its code by the deploy script.
 
-const DEPLOY_DIR = process.env.BABUKI_DEPLOY_DIR || "/opt/babuki/app";
+const API_DIR = process.env.BABUKI_API_DIR || "/opt/babuki/api";
+const WEB_DIR = process.env.BABUKI_WEB_DIR || "/opt/babuki/web";
 
 module.exports = {
   apps: [
     {
+      name: "babuki-api",
+      cwd: API_DIR,
+      script: "src/server.ts",
+      interpreter: "node_modules/.bin/tsx",
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_restarts: 10,
+      env: {
+        NODE_ENV: "production",
+        PORT: "8000",
+      },
+    },
+    {
       name: "babuki-web",
-      cwd: DEPLOY_DIR,
+      cwd: WEB_DIR,
       script: "server.js",
       instances: 1,
       exec_mode: "fork",

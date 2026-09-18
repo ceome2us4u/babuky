@@ -55,7 +55,7 @@ resource "aws_secretsmanager_secret" "msg91_auth_key" {
 }
 resource "aws_secretsmanager_secret_version" "msg91_auth_key" {
   secret_id     = aws_secretsmanager_secret.msg91_auth_key.id
-  secret_string = ""
+  secret_string = "not-configured-yet"
   lifecycle {
     ignore_changes = [secret_string] # don't clobber a real value set later out-of-band
   }
@@ -66,7 +66,7 @@ resource "aws_secretsmanager_secret" "razorpay_key_secret" {
 }
 resource "aws_secretsmanager_secret_version" "razorpay_key_secret" {
   secret_id     = aws_secretsmanager_secret.razorpay_key_secret.id
-  secret_string = ""
+  secret_string = "not-configured-yet"
   lifecycle {
     ignore_changes = [secret_string]
   }
@@ -77,7 +77,7 @@ resource "aws_secretsmanager_secret" "razorpay_webhook_secret" {
 }
 resource "aws_secretsmanager_secret_version" "razorpay_webhook_secret" {
   secret_id     = aws_secretsmanager_secret.razorpay_webhook_secret.id
-  secret_string = ""
+  secret_string = "not-configured-yet"
   lifecycle {
     ignore_changes = [secret_string]
   }

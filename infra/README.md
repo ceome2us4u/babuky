@@ -39,11 +39,13 @@ targets.
 ## 2. Deploying a build (`scripts/deploy.sh`)
 
 Run from your own machine (or here) after `terraform apply` — builds the
-Next.js app, ships it + the Nginx config to the box over SSH, assembles
-`apps/web/.env` **on the box** by pulling secrets from Secrets Manager via
-its own instance role (no secret ever touches this machine), runs DB
-migrations, issues/renews the wildcard TLS cert (DNS-01, idempotent), and
-(re)starts the app under PM2.
+Next.js frontend, ships `apps/api`'s source (the box runs its own `npm
+install`) + the Nginx config to the box over SSH, assembles
+`apps/api/.env` and `apps/web/.env` **on the box** by pulling secrets from
+Secrets Manager via its own instance role (no secret ever touches this
+machine), runs DB migrations, issues/renews the wildcard TLS cert (DNS-01,
+idempotent — `*.babuki.com` also covers `api.babuki.com`), and (re)starts
+both `babuki-api` (:8000) and `babuki-web` (:3000) under PM2.
 
 ```bash
 scripts/deploy.sh "$(cd infra/terraform && AWS_PROFILE=senthilkumar terraform output -raw app_box_public_ip)"
