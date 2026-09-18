@@ -1,0 +1,45 @@
+"use client";
+
+import { Search, Store } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MerchantFlow } from "@/components/shops/MerchantFlow";
+import { BuyerFlow } from "@/components/shops/BuyerFlow";
+
+export function ShopsView() {
+  return (
+    <div className="mx-auto max-w-6xl px-6 py-12">
+      <div className="panel mb-8 flex flex-col gap-4 rounded-lg border-gold/30 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-lg font-bold text-gold-gradient">Early Bird Special: Lock in ₹500/month for LIFE</p>
+          <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Join before our native mobile apps launch. Future vendors pay ₹1,500/mo, but early partners
+            stay locked at ₹500/mo forever.
+          </p>
+        </div>
+        <Badge className="shrink-0">
+          <span className="size-1.5 rounded-full bg-gold" />
+          Limited window
+        </Badge>
+      </div>
+
+      <Tabs defaultValue="merchant">
+        <TabsList className="mb-8">
+          <TabsTrigger value="merchant">
+            <Store className="size-4" /> I own a shop
+          </TabsTrigger>
+          <TabsTrigger value="buyer">
+            <Search className="size-4" /> Shops Nearby
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="merchant">
+          <MerchantFlow />
+        </TabsContent>
+        <TabsContent value="buyer">
+          <BuyerFlow />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

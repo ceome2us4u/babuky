@@ -37,13 +37,23 @@ babuky/
                             storage.ts, require-shop-owner.ts, constants.ts,
                             auth-middleware.ts (Hono cookie helper), env.ts
       src/routes/           auth.ts, shops.ts (+ catalog), consultancy.ts,
-                            geocode.ts, webhooks.ts, contact.ts, razorpay.ts
+                            geocode.ts, webhooks.ts, contact.ts
       src/server.ts          Hono app, CORS (matches *.babuki.com), mounts
       db/migrations/        numbered raw-SQL migrations, no ORM — apps/api
                              owns the schema
-    web/                  Next.js (App Router, TS, Tailwind) — PAGES ONLY.
-      src/lib/api.ts        apiUrl() -> NEXT_PUBLIC_API_URL (api.babuki.com).
-                             No server logic, no /api routes, in this app.
+    web/                  Next.js 14 (App Router, TS, Tailwind v4) — PAGES ONLY.
+      src/app/              / (home), /shops (merchant onboarding + nearby),
+                             /estimator, /terms, /contact
+      src/components/       Navbar/Footer/Logo/AuthModal, ui/* (shadcn-style
+                             Radix primitives), shops/*, estimator/*
+      src/lib/api.ts        apiUrl()/apiFetch() -> NEXT_PUBLIC_API_URL
+                             (api.babuki.com), credentials included so the
+                             session cookie rides along. No server logic, no
+                             /api routes, in this app.
+      src/lib/auth.tsx      AuthProvider: /auth/me on load, OTP modal flow
+      src/lib/razorpay.ts   Checkout.js loader (publishable key id only)
+      src/app/globals.css   the Lovable mock's burgundy/gold tokens, verbatim
+      public/brand/         logo + emblem cropped from the owner's logo file
   infra/
     terraform/            all AWS resources (VPC, EC2, S3, IAM, Route 53, secrets)
     nginx/babuki.conf     api.babuki.com -> :8000, babuki.com/*.babuki.com -> :3000
@@ -114,7 +124,7 @@ re-validates and persists `upi_id` / `verified_merchant_name` /
 `is_upi_verified` — `verified_merchant_name` is only ever written from
 Razorpay's own response, never trusted from client input.
 
-At checkout, the storefront (Phase 2, not built yet) builds a UPI deep
+At checkout, the storefront (not built yet) builds a UPI deep
 link entirely client-side — `upi://pay?pa={upi_id}&pn={verified_merchant_name}&am={cart_total}&cu=INR`
 — and renders it with **`qrcode.react`** (a React component, renders
 client-side with no server round-trip; the plain `qrcode` package would
@@ -153,7 +163,13 @@ could have been anything).
 ## API surface (`apps/api/src/routes/`, mounted on `api.babuki.com`)
 
 - `/auth/otp/{send,verify}`, `/auth/{profile,me,logout}` — MSG91-backed.
-- `/shops` (create), `/shops/slug-available`, `/shops/by-slug/:slug`
+  `POST /auth/lead-source` adds a lead-source tag to an already-signed-in
+  user (lead sources gate the merchant/buyer/consultancy endpoints, and are
+  otherwise only recorded at OTP verify — without this a buyer could never
+  become a merchant without a fresh OTP).
+- `/shops` (create — starts as status `draft`), `/shops/mine` (the
+  signed-in vendor's shops + lifecycle/subscription/UPI state),
+  `/shops/slug-available`, `/shops/by-slug/:slug`
   (**public** — storefront lookup, only exposes UPI fields once verified),
   `/shops/nearby` (PostGIS `ST_DWithin`/`ST_Distance`, gated to
   `LOCAL_BUYER` sessions), `/shops/:id/subscribe` (Razorpay Subscription
@@ -167,14 +183,15 @@ could have been anything).
 - `/geocode/reverse` — server-side Nominatim proxy.
 - `/consultancy/leads` — creates the lead + a ₹100 Razorpay order.
 - `/webhooks/razorpay` — signature-verified, updates subscription/deposit
-  status.
-- `/contact`, `/razorpay/create-order` — carried over from the original
-  generic scaffold, still used by the current placeholder pages
-  (`apps/web`'s Contact and Get Started). `/contracts/create-envelope`
-  (Documenso) was **not** carried over — dropped as unused scope tied to
-  a placeholder page that Phase 2 replaces with the real Terms page
-  anyway; `apps/web/src/app/contracts/page.tsx` will show its existing
-  error state if submitted until Phase 2 lands.
+  status. **Shop lifecycle lives here**: `subscription.activated`/`.charged`
+  set `shops.status = 'active'` (the only thing that makes a storefront
+  visible to by-slug/nearby/catalog), `.cancelled`/`.halted` set it to
+  `suspended` (data kept, storefront offline).
+- `/contact` — the contact form. The old generic `/razorpay/create-order`
+  (unauthenticated, arbitrary amount) was removed once nothing used it;
+  every Razorpay order/subscription is now created by an authenticated
+  route that fixes the amount server-side. `/contracts/create-envelope`
+  (Documenso) was never carried over.
 
 ## Infrastructure (`infra/terraform/`)
 
@@ -231,15 +248,25 @@ Terraform would then manage.
 
 - **Real**: the entire `apps/api` backend above (once deployed) — schema,
   auth, catalog, PostGIS search, Razorpay integration, infra.
-- **Placeholder**: `apps/web`'s actual pages (`page`, `services`, `contact`,
-  `get-started`, `contracts`) are still the original generic scaffold from
-  before the real product spec existed — not the burgundy/gold
-  dual-offering design referenced from the Lovable zip, and not yet wired
-  to most of `apps/api`'s real endpoints (only Contact and the generic
-  Razorpay order-creation button are wired, via `apps/web/src/lib/api.ts`).
-  That page/theme rewrite, plus the buyer-facing catalog+cart UI (grouped
-  by category, out-of-stock states) and the vendor's catalog-management
-  dashboard, is the next major piece of work.
+- **Real, ported from the Lovable mock** (`babuki.zip`, reference only —
+  its TanStack stack was not adopted): Home, Hyperlocal Shops (merchant
+  4-step onboarding + Shops Nearby with Leaflet), Software Estimator,
+  Terms, the OTP login modal and the burgundy/gold theme — all wired to
+  `apps/api` (OTP, slug check, shop create, subscription Checkout, UPI VPA
+  verification, nearby search, consultancy lead + ₹100 Checkout).
+  Deliberate departures from the mock: the mock's fake "Razorpay
+  simulation" toasts are real Checkout now; Direct Order uses UPI VPA
+  verification + a dynamic QR instead of an uploaded static QR image; the
+  Terms page's e-sign panel is shown disabled ("coming soon") because the
+  mock's version only fired a success toast and recorded nothing.
+- **Not built yet**: the live storefront page a buyer lands on at
+  `[slug].babuki.com` (catalog, +/- cart grouped by category, out-of-stock
+  states, UPI QR via `qrcode.react` — the dependency is installed) with
+  the subdomain-to-page routing it needs; and the vendor's
+  catalog-management dashboard. Until those ship, a paid shop is
+  activated and listed in Shops Nearby, but its "Open storefront" link
+  shows the marketing site. Real Me2Us4U footer logo is also outstanding
+  (the zip only had a CDN pointer).
 - **Needs real credentials from the owner** (placeholders in Secrets
   Manager / `.env.example` until then): `MSG91_AUTH_KEY`,
   `RAZORPAY_KEY_SECRET` (copyable from Home's account-wide values),

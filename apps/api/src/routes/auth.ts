@@ -133,6 +133,29 @@ auth.post("/profile", async (c) => {
   return c.json({ ok: true });
 });
 
+// A signed-in user can pick up another lead-source tag without a fresh OTP
+// (e.g. a buyer who later onboards a shop). Lead sources gate the
+// merchant/buyer/consultancy endpoints, so the UI calls this before them.
+auth.post("/lead-source", async (c) => {
+  const phone = await getSessionUserPhone(c);
+  if (!phone) {
+    return c.json({ error: "Not authenticated" }, 401);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const leadSource = body?.leadSource;
+  if (!LEAD_SOURCES.includes(leadSource)) {
+    return c.json({ error: "leadSource is invalid" }, 400);
+  }
+
+  await query(
+    `INSERT INTO user_lead_sources (user_phone, lead_source) VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [phone, leadSource],
+  );
+  return c.json({ ok: true });
+});
+
 auth.get("/me", async (c) => {
   const phone = await getSessionUserPhone(c);
   if (!phone) {

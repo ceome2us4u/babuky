@@ -10,7 +10,6 @@ import { consultancy } from "./routes/consultancy.js";
 import { geocode } from "./routes/geocode.js";
 import { webhooks } from "./routes/webhooks.js";
 import { contact } from "./routes/contact.js";
-import { razorpay } from "./routes/razorpay.js";
 
 const app = new Hono();
 
@@ -35,7 +34,6 @@ app.route("/consultancy", consultancy);
 app.route("/geocode", geocode);
 app.route("/webhooks", webhooks);
 app.route("/contact", contact);
-app.route("/razorpay", razorpay);
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {
   console.log(`babuki-api listening on :${info.port}`);

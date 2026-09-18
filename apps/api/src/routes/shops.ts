@@ -29,6 +29,29 @@ shops.get("/slug-available", async (c) => {
   return c.json({ available: rows.length === 0 });
 });
 
+// The signed-in vendor's own shops, with lifecycle state: 'draft' until the
+// subscription payment webhook activates it, 'suspended' if it lapses. Drives
+// the post-checkout "is it live yet?" check and the vendor dashboard.
+shops.get("/mine", async (c) => {
+  const phone = await getSessionUserPhone(c);
+  if (!phone) return c.json({ error: "Not authenticated" }, 401);
+
+  const { rows } = await query(
+    `SELECT s.id, s.slug, s.name, s.industry, s.mode, s.status, s.address_text,
+            s.upi_id, s.verified_merchant_name, s.is_upi_verified,
+            sub.status AS subscription_status
+     FROM shops s
+     LEFT JOIN LATERAL (
+       SELECT status FROM shop_subscriptions
+       WHERE shop_id = s.id ORDER BY created_at DESC LIMIT 1
+     ) sub ON true
+     WHERE s.owner_phone = $1
+     ORDER BY s.created_at DESC`,
+    [phone],
+  );
+  return c.json({ shops: rows });
+});
+
 // Public storefront lookup (slug.babuki.com resolves here) — the checkout
 // page builds its UPI deep link (upi://pay?pa=...&pn=...&am=...&cu=INR)
 // client-side from upi_id/verified_merchant_name, so only ever expose
