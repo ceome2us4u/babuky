@@ -213,7 +213,13 @@ shops.get("/nearby", async (c) => {
   }
 
   const { rows } = await query(
+    // owner_phone is exposed here on purpose: the Shops Nearby cards have
+    // Call / WhatsApp buttons, and this endpoint is already gated to
+    // signed-in LOCAL_BUYER sessions. UPI fields only once Razorpay-verified.
     `SELECT id, slug, name, industry, mode,
+            owner_phone AS phone,
+            CASE WHEN is_upi_verified THEN upi_id END AS upi_id,
+            CASE WHEN is_upi_verified THEN verified_merchant_name END AS verified_merchant_name,
             ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lng,
             ST_Distance(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) / 1000 AS distance_km
      FROM shops

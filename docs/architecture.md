@@ -53,7 +53,12 @@ babuky/
       src/lib/auth.tsx      AuthProvider: /auth/me on load, OTP modal flow
       src/lib/razorpay.ts   Checkout.js loader (publishable key id only)
       src/app/globals.css   the Lovable mock's burgundy/gold tokens, verbatim
-      public/brand/         logo + emblem cropped from the owner's logo file
+      src/components/ui/    the mock's own shadcn components, copied verbatim
+                             (they use forwardRef — required under React 18
+                             for Radix `asChild`; don't hand-rewrite them, the
+                             sizing/tab/badge styles are part of the design)
+      public/brand/         official emblem + wordmark + Me2Us4U logo, pulled
+                             from the Lovable project and downsized
   infra/
     terraform/            all AWS resources (VPC, EC2, S3, IAM, Route 53, secrets)
     nginx/babuki.conf     api.babuki.com -> :8000, babuki.com/*.babuki.com -> :3000
@@ -162,7 +167,9 @@ could have been anything).
 
 ## API surface (`apps/api/src/routes/`, mounted on `api.babuki.com`)
 
-- `/auth/otp/{send,verify}`, `/auth/{profile,me,logout}` — MSG91-backed.
+- `/auth/otp/{send,verify}`, `/auth/{profile,me,logout}` — MSG91-backed;
+  OTPs are 4 digits (`otp_length=4` is sent explicitly — MSG91 defaults to
+  6 — to match the mock's 4-digit screen).
   `POST /auth/lead-source` adds a lead-source tag to an already-signed-in
   user (lead sources gate the merchant/buyer/consultancy endpoints, and are
   otherwise only recorded at OTP verify — without this a buyer could never
@@ -172,7 +179,10 @@ could have been anything).
   `/shops/slug-available`, `/shops/by-slug/:slug`
   (**public** — storefront lookup, only exposes UPI fields once verified),
   `/shops/nearby` (PostGIS `ST_DWithin`/`ST_Distance`, gated to
-  `LOCAL_BUYER` sessions), `/shops/:id/subscribe` (Razorpay Subscription
+  `LOCAL_BUYER` sessions; returns the vendor's phone for the Call/WhatsApp
+  buttons — a deliberate, gated exposure — and `upi_id`/
+  `verified_merchant_name` only once Razorpay-verified, for the Pay-via-QR
+  button), `/shops/:id/subscribe` (Razorpay Subscription
   against the locked plan), `/shops/:id/upi/{validate,confirm}` (vendor-only
   — see the UPI checkout section above).
 - `/shops/:id/categories`, `/shops/:id/items` — **public GET** (a live
@@ -265,8 +275,9 @@ Terraform would then manage.
   the subdomain-to-page routing it needs; and the vendor's
   catalog-management dashboard. Until those ship, a paid shop is
   activated and listed in Shops Nearby, but its "Open storefront" link
-  shows the marketing site. Real Me2Us4U footer logo is also outstanding
-  (the zip only had a CDN pointer).
+  shows the marketing site. `/contact` exists but is deliberately not
+  linked from the nav or footer — the mock's footer is a clean three-part
+  row with no secondary links.
 - **Needs real credentials from the owner** (placeholders in Secrets
   Manager / `.env.example` until then): `MSG91_AUTH_KEY`,
   `RAZORPAY_KEY_SECRET` (copyable from Home's account-wide values),

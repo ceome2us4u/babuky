@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { CheckCircle2, Info, Minus, Plus, Ticket } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input, Textarea } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
@@ -48,7 +49,6 @@ const CATEGORIES: { title: string; caption: string; items: Item[] }[] = [
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
 export function EstimatorView() {
-  const { requestLogin } = useAuth();
   const [cart, setCart] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState(false);
 
@@ -123,11 +123,7 @@ export function EstimatorView() {
               Estimated Budget: {inr(low)} – {inr(high)}
             </p>
           </div>
-          <Button
-            size="lg"
-            disabled={selected.length === 0}
-            onClick={() => requestLogin("CONSULTANCY_LEAD", () => setOpen(true))}
-          >
+          <Button size="lg" disabled={selected.length === 0} onClick={() => setOpen(true)}>
             Submit service request
           </Button>
         </div>
@@ -157,7 +153,7 @@ function RequestModal({
   low: number;
   high: number;
 }) {
-  const { user } = useAuth();
+  const { user, requestLogin, ensureLeadSource } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [desc, setDesc] = useState("");
@@ -181,6 +177,7 @@ function RequestModal({
     }
     setBusy(true);
     try {
+      await ensureLeadSource("CONSULTANCY_LEAD");
       // The API prices the lead from these ids' low/high, creates the ticket
       // and the ₹100 Razorpay order; the webhook marks the deposit paid.
       const lead = await apiPost<{ ticketRef: string; order: { id: string } }>("/consultancy/leads", {
@@ -220,6 +217,16 @@ function RequestModal({
               Our lead technical architect will call {user?.phone} within one business day to run
               discovery on your {items.length}-item scope ({inr(low)} – {inr(high)}).
             </p>
+          </div>
+        ) : !user?.profile ? (
+          <div className="space-y-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              Verify your mobile number to continue. Your number is tagged{" "}
+              <span className="text-gold">CONSULTANCY_LEAD</span>.
+            </p>
+            <Button className="w-full" onClick={() => requestLogin("CONSULTANCY_LEAD")}>
+              Verify mobile number
+            </Button>
           </div>
         ) : (
           <div className="space-y-4">
