@@ -1,8 +1,19 @@
-# Babuky
+# Babuky / Babuki
 
-Public marketing/brand site for Babuky, a B2B software services company —
-we act as the software delivery team for other companies (SaaS/product
-engineering and custom software development).
+Babuky and Babuki are the same product (two domain spellings, to be merged
+later) — a dual-offering B2B platform owned by Me2Us4U (OPC) Private
+Limited: hyperlocal vendor storefronts on `[slug].babuki.com`, and a
+software-consultancy scope estimator. The pages currently in `apps/web` are
+still the original generic scaffold; the real content/UI rewrite (matching
+the product's actual copy and theme) is a separate, later pass — see
+`apps/web/db` and `apps/web/src/app/api/*` for what's real so far: the
+database schema, auth, and payments backend.
+
+**Fully isolated from Me2Us4U's other infrastructure** (the "Home"
+monorepo): separate repo, separate VPC/EC2, separate self-hosted database —
+not RDS, not Supabase, not any shared `@me2us4u/*` package. The one
+exception is the MSG91 and Razorpay *accounts*, which are the same company
+accounts used elsewhere, just with Babuki's own plan/template IDs.
 
 ## Monorepo layout
 
@@ -41,33 +52,51 @@ testing the payment or contract flows.
   `apps/web/src/app/api/contracts/create-envelope`. Documenso was chosen over
   DocuSign because it's open-source and self-hostable on AWS, avoiding
   per-envelope SaaS pricing — swap it out if you'd rather use something else.
+- **Database**: `apps/web/db/migrations/*.sql` — self-hosted PostgreSQL +
+  PostGIS (not an ORM; raw `pg` + numbered migration files, run with
+  `npm run db:migrate` in `apps/web`). Schema: `users` / `user_lead_sources` /
+  `user_profiles` / `sessions` (auth), `shops` / `shop_subscriptions`
+  (hyperlocal vendors), `consultancy_leads` (software estimator).
+- **Auth (MSG91 OTP)**: `apps/web/src/lib/msg91.ts` +
+  `apps/web/src/lib/session.ts` + `apps/web/src/app/api/auth/*`. Opaque
+  bearer-token sessions (httpOnly cookie), not JWT — a DB leak alone can't
+  be replayed, and logout is a plain row delete.
+- **Hyperlocal shops + PostGIS search**: `apps/web/src/app/api/shops/*` +
+  `apps/web/src/app/api/geocode/reverse` (server-side Nominatim proxy).
+- **Consultancy leads + subscriptions (Razorpay)**: `apps/web/src/lib/razorpay.ts`
+  (order creation, vendor subscriptions, webhook signature verification) +
+  `apps/web/src/app/api/consultancy/leads` +
+  `apps/web/src/app/api/shops/[id]/subscribe` +
+  `apps/web/src/app/api/webhooks/razorpay`.
 
 ## Deploying to AWS
 
-Target is a plain **EC2 instance** — no Lambda, no Amplify Hosting, no
-ECS/Fargate/App Runner. `apps/web/Dockerfile` (multi-stage, Next.js
-`output: "standalone"`) builds a self-contained image you run directly on
-the box with `docker run`, behind Nginx (TLS termination + reverse proxy to
-the container's port 3000) and pointed at by Route 53.
+Target is a single, dedicated **EC2 instance** in its own VPC — no Lambda,
+no Amplify Hosting, no ECS/Fargate/App Runner, and not sharing compute, a
+VPC, or a database with any other project. PostgreSQL+PostGIS runs on the
+same box as the app. See [`infra/README.md`](infra/README.md) for the full
+setup (Postgres, PM2, Nginx, the wildcard Let's Encrypt cert) and
+[`infra/nginx/babuki.conf`](infra/nginx/babuki.conf) /
+[`infra/pm2/ecosystem.config.js`](infra/pm2/ecosystem.config.js) for the
+actual configs. `apps/web/Dockerfile` still exists but is unused for now —
+PM2 running the standalone build directly is the primary deploy path.
 
-If you'd rather not use Docker on the instance at all, the standalone build
-also runs directly with plain Node: `npm run build` in `apps/web`, then
-`node .next/standalone/server.js` under a process manager (e.g. `pm2` or a
-systemd unit) so it survives reboots/crashes.
-
-Domain: `babuki.com` is already on Route 53. `babuki.in` and `babuky.com`
+DNS: one Route 53 wildcard record, `*.babuki.com` (+ the apex), points at
+the instance's Elastic IP — that single record serves every vendor
+subdomain, no per-signup DNS API call needed. `babuki.in` and `babuky.com`
 are on GoDaddy and will transfer to AWS after 2026-11-16, then get routed to
-this same site — no code changes needed for that, just DNS/Route 53 config
-once the transfer completes.
+the same instance.
 
-## TODO before this is a finished, live site
+## TODO before this is a finished, live product
 
 - [ ] Confirm final brand name/domain spelling in `site.ts`
-- [ ] Fill in `contact.email` / `contact.phone` in `site.ts` once Google
-      Workspace is set up
-- [ ] Get Razorpay keys into `apps/web/.env.local` (account already exists)
+- [ ] Get MSG91 (OTP template id) and Razorpay (webhook secret, vendor plan
+      id) values into `apps/web/.env.local` — same company accounts as
+      Me2Us4U's other products, Babuki gets its own IDs inside them
 - [ ] Stand up a Documenso instance (or pick a different e-sign tool) and add
       its API URL/key
 - [ ] Wire the contact form to real email delivery (e.g. AWS SES)
-- [ ] Provision the actual AWS hosting (Amplify app or ECS service) and point
-      Route 53 at it
+- [ ] Provision the actual dedicated VPC/EC2 instance and point Route 53 at it
+- [ ] Rewrite the actual pages (Home/Shops/Estimator/Terms) and theme to
+      match the real product content and wire them to this backend — the
+      current pages are still the original generic scaffold
