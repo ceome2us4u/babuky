@@ -12,6 +12,7 @@ import { ShopsMap, type ShopPin } from "@/components/shops/MapLazy";
 import { INDUSTRIES, BASE } from "@/components/shops/MerchantFlow";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { buildUpiLink, inr } from "@/lib/upi";
 
 type NearbyShop = {
   id: string;
@@ -38,15 +39,10 @@ type CatalogItem = {
   category_name: string | null;
 };
 
-const inr = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN")}`;
-
-// Plain UPI intent: the buyer's UPI app opens with payee prefilled and they
-// enter the amount. Built from Razorpay-verified values only; the money goes
-// buyer -> vendor and never touches Babuki.
+// Amount-less UPI intent: the buyer's UPI app opens with the payee prefilled
+// and they enter the amount (the storefront cart builds the amounted one).
 const upiLink = (shop: NearbyShop) =>
-  `upi://pay?pa=${encodeURIComponent(shop.upi_id ?? "")}&pn=${encodeURIComponent(
-    shop.verified_merchant_name ?? shop.name,
-  )}&cu=INR`;
+  buildUpiLink({ vpa: shop.upi_id ?? "", name: shop.verified_merchant_name ?? shop.name });
 
 export function BuyerFlow() {
   const { user, requestLogin } = useAuth();
