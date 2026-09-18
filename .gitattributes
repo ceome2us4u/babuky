@@ -1,0 +1,6 @@
+# Files that execute on Linux (WSL bash, the EC2 box) must stay LF even
+# when a Windows checkout has core.autocrlf=true — a CRLF in deploy.sh
+# fails with "\r: command not found".
+*.sh text eol=lf
+*.tpl text eol=lf
+infra/nginx/*.conf text eol=lf
