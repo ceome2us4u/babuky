@@ -14,8 +14,15 @@ apt-get upgrade -y
 apt-get install -y \
   postgresql postgresql-contrib postgresql-16-postgis-3 \
   nginx certbot python3-certbot-dns-route53 \
-  awscli \
-  curl ca-certificates gnupg
+  curl unzip ca-certificates gnupg
+
+# AWS CLI v2 — Ubuntu dropped the `awscli` apt package (confirmed live on
+# 24.04: "Package 'awscli' has no installation candidate"); install via
+# AWS's own bundled installer instead, the officially documented method.
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/awscliv2.zip /tmp/aws
 
 # Node.js 20.x
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
