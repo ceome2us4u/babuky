@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { apiUrl } from "@/lib/api";
+import { BadgeCheck } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input, Textarea } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { apiPost } from "@/lib/api";
 
 type Status = "idle" | "submitting" | "sent" | "error";
 
@@ -16,13 +21,9 @@ export function ContactForm() {
     const payload = Object.fromEntries(new FormData(form).entries());
 
     try {
-      const res = await fetch(apiUrl("/contact"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      setStatus(res.ok ? "sent" : "error");
-      if (res.ok) form.reset();
+      await apiPost("/contact", payload);
+      setStatus("sent");
+      form.reset();
     } catch {
       setStatus("error");
     }
@@ -30,58 +31,33 @@ export function ContactForm() {
 
   if (status === "sent") {
     return (
-      <p className="rounded-md bg-green-50 p-4 text-sm text-green-700">
-        Thanks — we received your message. Direct delivery is being set up; we&apos;ll be in touch soon.
-      </p>
+      <div className="panel rounded-xl p-6 text-center">
+        <BadgeCheck className="mx-auto size-8 text-gold" />
+        <p className="mt-2 font-bold">Message received</p>
+        <p className="text-sm text-muted-foreground">Thanks — we&apos;ll be in touch soon.</p>
+      </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-          Name
-        </label>
-        <input
-          id="name"
-          name="name"
-          required
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-        />
+    <form onSubmit={handleSubmit} className="panel space-y-4 rounded-xl p-6">
+      <div className="space-y-2">
+        <Label htmlFor="name">Name</Label>
+        <Input id="name" name="name" required />
       </div>
-      <div>
-        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-          Email
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          required
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-        />
+      <div className="space-y-2">
+        <Label htmlFor="email">Email</Label>
+        <Input id="email" name="email" type="email" required />
       </div>
-      <div>
-        <label htmlFor="message" className="block text-sm font-medium text-gray-700">
-          Message
-        </label>
-        <textarea
-          id="message"
-          name="message"
-          required
-          rows={4}
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-        />
+      <div className="space-y-2">
+        <Label htmlFor="message">Message</Label>
+        <Textarea id="message" name="message" required rows={4} />
       </div>
-      <button
-        type="submit"
-        disabled={status === "submitting"}
-        className="rounded-md bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
-      >
-        {status === "submitting" ? "Sending..." : "Send message"}
-      </button>
+      <Button type="submit" disabled={status === "submitting"}>
+        {status === "submitting" ? "Sending…" : "Send message"}
+      </Button>
       {status === "error" && (
-        <p className="text-sm text-red-600">Something went wrong — please try again.</p>
+        <p className="text-sm text-destructive">Something went wrong — please try again.</p>
       )}
     </form>
   );

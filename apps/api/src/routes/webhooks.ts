@@ -47,6 +47,14 @@ webhooks.post("/razorpay", async (c) => {
            WHERE razorpay_subscription_id = $1`,
           [entity.id, entity.current_end ?? null],
         );
+        // A paid subscription is what makes the storefront go live (shops
+        // are created as 'draft'; by-slug/nearby/catalog only serve 'active').
+        // Also covers renewals: a suspended shop comes back on a new charge.
+        await query(
+          `UPDATE shops SET status = 'active'
+           WHERE id = (SELECT shop_id FROM shop_subscriptions WHERE razorpay_subscription_id = $1)`,
+          [entity.id],
+        );
       }
       break;
     }
@@ -56,6 +64,12 @@ webhooks.post("/razorpay", async (c) => {
       if (entity?.id && isBabukiPlan(entity.plan_id)) {
         await query(
           "UPDATE shop_subscriptions SET status = 'cancelled' WHERE razorpay_subscription_id = $1",
+          [entity.id],
+        );
+        // Lapsed subscription: take the storefront offline (data is kept).
+        await query(
+          `UPDATE shops SET status = 'suspended'
+           WHERE id = (SELECT shop_id FROM shop_subscriptions WHERE razorpay_subscription_id = $1)`,
           [entity.id],
         );
       }
