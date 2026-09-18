@@ -71,13 +71,11 @@ cd ..\..
 bash scripts/deploy.sh <the-ip>
 ```
 
-If it also needs an override (e.g. a non-default `SSH_KEY`), set that
-*inside* the same `bash -c "..."` call, using the WSL `/mnt/c/...` path
-form — see the shell note at the top of this file:
-
-```powershell
-bash -c "SSH_KEY=/mnt/c/Users/prass/.ssh/babuki-app-box bash scripts/deploy.sh <the-ip>"
-```
+If it needs an override, set it *inside* the same `bash -c "..."` call —
+see the shell note at the top of this file. Do **not** point `SSH_KEY` at a
+`/mnt/c/...` path: files on the Windows mount are always mode 0777 and ssh
+ignores the key. Use the `chmod 600` copy in WSL's `~/.ssh` (the default),
+so normally no override is needed.
 
 Non-secret config (Razorpay's publishable key id, the vendor plan id,
 MSG91's template id) are plain values inside `scripts/deploy.sh` itself —

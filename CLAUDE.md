@@ -74,9 +74,15 @@ PowerShell↔bash boundary:
   the same way (file not found, not "wrong shell").
 - **The reliable fix: set the var *inside* the same `bash -c "..."`
   invocation**, using the WSL path form, so nothing has to cross the
-  PowerShell↔bash boundary at all:
+  PowerShell↔bash boundary at all.
+- **Never point `SSH_KEY` at a `/mnt/c/...` path** — files on the Windows
+  mount always report mode 0777 and ssh ignores the key ("UNPROTECTED
+  PRIVATE KEY FILE", then `Permission denied (publickey)`). The key lives
+  as a `chmod 600` copy in WSL's own `~/.ssh/babuki-app-box`, which is
+  `deploy.sh`'s default, so the deploy command has **no override**
+  (`deploy.sh` also checks the key's mode up front and says how to fix it):
   ```powershell
-  bash -c "SSH_KEY=/mnt/c/Users/prass/.ssh/babuki-app-box bash scripts/deploy.sh 13.204.187.141"
+  bash scripts/deploy.sh 13.204.187.141
   ```
 - **WSL has no Linux `node`/`npm` here** — `type -a npm` →
   `/mnt/c/Program Files/nodejs/npm`, the *Windows* one via interop. Env

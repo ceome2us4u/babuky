@@ -37,7 +37,10 @@
 #     Git Bash's (/c/Users/<you>/...) — same file, different path.
 # Reliable fix from a PowerShell prompt: set overrides *inside* the same
 # `bash -c "..."` call so nothing crosses the PowerShell<->WSL boundary:
-#   bash -c "SSH_KEY=/mnt/c/Users/<you>/.ssh/babuki-app-box bash scripts/deploy.sh <ip>"
+#   bash -c "SSH_KEY=<wsl path> bash scripts/deploy.sh <ip>"
+# NOT a /mnt/c key path: files there are always 0777 and ssh ignores them.
+# The key lives as a chmod-600 copy in WSL's ~/.ssh, which is the default,
+# so normally no override at all: bash scripts/deploy.sh <ip>
 # See CLAUDE.md's shell-environment section for the full story.
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -55,6 +58,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SSH_TARGET="$SSH_USER@$HOST"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/babuki-app-box}"
 SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=accept-new)
+
+# Fail in a second, not after the build: ssh silently ignores a key that's
+# missing or group/world-accessible. Files on /mnt/c always report 0777, so
+# under WSL the key must be a copy inside WSL's own ~/.ssh with chmod 600.
+if [ ! -f "$SSH_KEY" ]; then
+	echo "ERROR: SSH key not found at $SSH_KEY" >&2
+	exit 2
+fi
+if [ "$(stat -c %a "$SSH_KEY")" != "600" ] && [ "$(stat -c %a "$SSH_KEY")" != "400" ]; then
+	echo "ERROR: $SSH_KEY has mode $(stat -c %a "$SSH_KEY"); ssh will refuse it." >&2
+	echo "  Under WSL, /mnt/c files are always 0777 - copy the key into ~/.ssh and chmod 600 it:" >&2
+	echo "    mkdir -p ~/.ssh && cp /mnt/c/Users/<you>/.ssh/babuki-app-box ~/.ssh/ && chmod 600 ~/.ssh/babuki-app-box" >&2
+	exit 2
+fi
 
 # --- non-secret config — EDIT THESE before a real deploy, or export
 # overrides before calling this script. Every one has a safe fallback so
