@@ -31,6 +31,9 @@ npm install -g pm2
 
 # --- Postgres: role + db, password pulled from Secrets Manager via this
 # instance's own IAM role (never passed as a literal here) -----------------
+# xtrace off around the password: this script tees to /var/log/babuki-user-data.log
+# and `set -x` would write the password into it.
+set +x
 DB_PASSWORD="$(aws secretsmanager get-secret-value --region ${region} --secret-id babuki/prod/db-password --query SecretString --output text)"
 
 sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
@@ -44,6 +47,7 @@ BEGIN
 END
 \$\$;
 SQL
+set -x
 
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'babuki'" | grep -q 1 \
   || sudo -u postgres createdb babuki --owner=babuki

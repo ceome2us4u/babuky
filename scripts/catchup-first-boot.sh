@@ -26,6 +26,8 @@ if ! command -v node >/dev/null; then
 fi
 sudo npm install -g pm2
 
+# xtrace off around the password: `set -x` would print it to the terminal/logs.
+set +x
 DB_PASSWORD="$(aws secretsmanager get-secret-value --region ap-south-1 --secret-id babuki/prod/db-password --query SecretString --output text)"
 
 sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
@@ -39,6 +41,7 @@ BEGIN
 END
 \$\$;
 SQL
+set -x
 
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'babuki'" | grep -q 1 \
   || sudo -u postgres createdb babuki --owner=babuki
@@ -48,7 +51,11 @@ sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'babuki'" |
 # CREATE EXTENSION IF NOT EXISTS just no-ops for babuki (already exists).
 sudo -u postgres psql -d babuki -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
+# nginx is only enabled here, not restarted: an earlier deploy attempt may
+# already have installed babuki.conf, which references a TLS cert that
+# doesn't exist until deploy.sh step 5 — so nginx can't start yet. Step 6
+# of deploy.sh starts it once the cert is in place.
 sudo systemctl enable postgresql nginx
-sudo systemctl restart postgresql nginx
+sudo systemctl restart postgresql
 
 echo "catch-up complete"

@@ -41,7 +41,11 @@ actually is; this file is about *how* to work in this repo.
   isolation section for the exact boundary and why.
 - No secrets in transcripts or logs — pipe them directly into commands
   (`aws secretsmanager get-secret-value ... | docker login ...`), never
-  echo/print a real value.
+  echo/print a real value. **`set -x` (or `set -eux`) prints every variable
+  assignment**, so a script that fetches a secret into a variable under
+  xtrace leaks it to the terminal and any log it tees to — this happened
+  once (the Postgres password, in `catchup-first-boot.sh`). Wrap the
+  secret handling in `set +x` … `set -x`.
 - Applying real infrastructure changes (`terraform apply`) is a protected
   action requiring the user's explicit permission — expect it to be
   blocked by the harness until they grant it, and don't try to route

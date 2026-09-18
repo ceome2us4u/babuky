@@ -180,7 +180,7 @@ REMOTE
 
 echo "==> [6/7] pm2 (re)start both apps, reload nginx"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd $REMOTE_DIR && pm2 startOrRestart ecosystem.config.js --update-env && pm2 save"
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo nginx -t && sudo systemctl reload nginx"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo nginx -t && sudo systemctl reload-or-restart nginx"
 
 echo "==> [7/7] smoke test"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "curl -sf -o /dev/null -w 'local api :8000 -> %{http_code}\n' http://127.0.0.1:8000/health || echo '  FAILED: api not responding on :8000'"
