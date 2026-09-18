@@ -95,7 +95,11 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd $REMOTE_DIR/api && npm install --omit=dev
 # apps/web: standalone build output only
 scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/.next/standalone/." "$SSH_TARGET:$REMOTE_DIR/web/"
 scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/.next/static" "$SSH_TARGET:$REMOTE_DIR/web/.next/static"
-scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/public" "$SSH_TARGET:$REMOTE_DIR/web/public"
+# public/ is optional in Next.js — copy it if present, don't fail the
+# deploy if it's ever missing (confirmed live: it wasn't, once).
+if [ -d "$ROOT/apps/web/public" ]; then
+	scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/public" "$SSH_TARGET:$REMOTE_DIR/web/public"
+fi
 
 scp "${SSH_OPTS[@]}" "$ROOT/infra/nginx/babuki.conf" "$SSH_TARGET:/tmp/babuki.conf"
 scp "${SSH_OPTS[@]}" "$ROOT/infra/pm2/ecosystem.config.js" "$SSH_TARGET:$REMOTE_DIR/ecosystem.config.js"
