@@ -78,7 +78,11 @@ echo "==> [1/7] build the standalone Next.js output (apps/api ships as source �
 (cd "$ROOT/apps/web" && npm install && npm run build)
 
 echo "==> [2/7] ship both apps + nginx config to $HOST"
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p $REMOTE_DIR/api/db $REMOTE_DIR/web/.next"
+# /opt is root-owned by default — ubuntu can't mkdir there directly, and
+# scp can't sudo the file transfer itself, so chown it to ubuntu once,
+# up front, idempotent (harmless no-op on a re-deploy where it already
+# exists and is already owned correctly).
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p $REMOTE_DIR && sudo chown -R $SSH_USER:$SSH_USER $REMOTE_DIR && mkdir -p $REMOTE_DIR/api/db $REMOTE_DIR/web/.next"
 
 # apps/api: source only (package.json + src + db) — the box runs its own
 # npm install, no node_modules transferred over the wire.
