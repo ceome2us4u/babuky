@@ -56,7 +56,15 @@ testing the payment or contract flows.
   PostGIS (not an ORM; raw `pg` + numbered migration files, run with
   `npm run db:migrate` in `apps/web`). Schema: `users` / `user_lead_sources` /
   `user_profiles` / `sessions` (auth), `shops` / `shop_subscriptions`
-  (hyperlocal vendors), `consultancy_leads` (software estimator).
+  (hyperlocal vendors), `shop_categories` / `shop_items` (each vendor's
+  catalog — price, optional brand, optional manually-tracked stock count),
+  `consultancy_leads` (software estimator).
+- **Vendor catalog + images**: `apps/web/src/app/api/shops/[id]/{categories,items,upload-url}`
+  + `apps/web/src/lib/storage.ts` (S3 presigned uploads — Babuki's own
+  bucket, browser uploads directly, no image bytes touch this server).
+  Category/item listing is public (no login needed to browse a live
+  storefront); creating/editing is vendor-only (session + ownership check
+  via `apps/web/src/lib/require-shop-owner.ts`).
 - **Auth (MSG91 OTP)**: `apps/web/src/lib/msg91.ts` +
   `apps/web/src/lib/session.ts` + `apps/web/src/app/api/auth/*`. Opaque
   bearer-token sessions (httpOnly cookie), not JWT — a DB leak alone can't

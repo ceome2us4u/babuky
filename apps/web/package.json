@@ -10,6 +10,8 @@
     "db:migrate": "node db/migrate.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.686.0",
+    "@aws-sdk/s3-request-presigner": "^3.686.0",
     "next": "^14.2.15",
     "pg": "^8.13.1",
     "razorpay": "^2.9.4",
