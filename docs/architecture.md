@@ -47,9 +47,11 @@ babuky/
                              /terms, /contact, /dashboard (vendor catalog)
       src/app/store/[slug]/ the vendor storefront, own light layout (no
                              marketing nav). Server-rendered per request.
-      src/middleware.ts     slug.babuki.com -> /store/slug (Host header; Nginx
-                             preserves it). Apex/www/api and static assets
-                             are left alone. `slug.localhost` works in dev.
+      next.config.mjs       slug.babuki.com -> /store/slug via a `beforeFiles`
+                             rewrite matching the Host header (Nginx preserves
+                             it). Apex/www and static assets are left alone.
+                             `slug.localhost` works in dev. NOT middleware —
+                             see the deploy gotchas below.
       src/components/       Navbar/Footer/Logo/AuthModal, ui/* (shadcn-style
                              Radix primitives), shops/*, estimator/*,
                              store/* (Storefront, CartDialog), dashboard/*
@@ -246,7 +248,16 @@ role at deploy time (`scripts/deploy.sh`) — never committed, never touch
 the deploying machine except in-memory during that SSH session.
 
 **Deploy gotchas already hit (all fixed in the repo, listed so they aren't
-rediscovered)**: Ubuntu 24.04 has no `awscli` apt package (AWS CLI v2 is
+rediscovered)**: a **middleware** rewrite for the vendor subdomain worked
+locally and 500'd in production — behind Nginx the request carries
+`X-Forwarded-Proto: https`, so the rewrite target built from `req.nextUrl`
+became `https://localhost:3000/...`, which Next treats as an external URL
+and tries to proxy over TLS to its own plain-HTTP port (`EPROTO`). It's a
+config rewrite in `next.config.mjs` now; **test anything host- or
+proxy-dependent against the standalone server with `X-Forwarded-Proto:
+https` and a `Host:` header, not plain `next start`**, and note that a `$`
+inside a `host` matcher's lookahead anchors the whole hostname, not the
+label. Ubuntu 24.04 has no `awscli` apt package (AWS CLI v2 is
 installed from AWS's own zip); `CREATE EXTENSION postgis` needs a
 superuser, so it's pre-installed as `postgres` at provision time and the
 migration's `IF NOT EXISTS` no-ops for the app role; Next's standalone
