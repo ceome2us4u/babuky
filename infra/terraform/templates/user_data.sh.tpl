@@ -48,6 +48,15 @@ SQL
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'babuki'" | grep -q 1 \
   || sudo -u postgres createdb babuki --owner=babuki
 
+# CREATE EXTENSION requires superuser — the babuki role (used by the app,
+# via migrate.mjs) isn't one, so postgis has to be installed here, as
+# postgres, once. Migration 0002's own `CREATE EXTENSION IF NOT EXISTS
+# postgis` then just no-ops for babuki since it already exists — no
+# permission check happens on that path. Confirmed live: this is a
+# self-hosted-Postgres-specific concern that never came up on Home's RDS
+# (RDS's master user has extension-install rights RDS grants specially).
+sudo -u postgres psql -d babuki -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
 systemctl enable postgresql nginx
 systemctl restart postgresql nginx
 

@@ -195,6 +195,22 @@ live in AWS Secrets Manager (`babuki/prod/*`), read by the box's own IAM
 role at deploy time (`scripts/deploy.sh`) — never committed, never touch
 the deploying machine except in-memory during that SSH session.
 
+**Deploy gotchas already hit (all fixed in the repo, listed so they aren't
+rediscovered)**: Ubuntu 24.04 has no `awscli` apt package (AWS CLI v2 is
+installed from AWS's own zip); `CREATE EXTENSION postgis` needs a
+superuser, so it's pre-installed as `postgres` at provision time and the
+migration's `IF NOT EXISTS` no-ops for the app role; Next's standalone
+output nests as `web/apps/web/server.js` in this monorepo (static/public
+copy next to it, PM2 `cwd` is `/opt/babuki/web/apps/web`) and needs
+`HOSTNAME=127.0.0.1` or it binds the machine hostname instead of the
+address Nginx proxies to; `NEXT_PUBLIC_*` values are inlined at *build*
+time (deploy.sh passes them to `npm run build` — the box's `.env` can't
+supply them afterwards); nothing in `apps/api` loads a `.env`, so PM2
+starts it with `node --env-file=.env --import tsx`; `scp -r dir
+host:existing_dir` nests instead of replacing, so deploy.sh wipes the
+replaceable directories and copies into their parents. `/opt/babuki`
+must be `chown`ed to the SSH user (root-owned `/opt`).
+
 **Deploy path**: `scripts/deploy.sh <elastic-ip>`, run manually from this
 session/machine (not GitHub Actions) — builds `apps/web`'s standalone
 output, ships `apps/api`'s source (the box runs its own `npm install`,

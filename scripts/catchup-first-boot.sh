@@ -43,6 +43,11 @@ SQL
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'babuki'" | grep -q 1 \
   || sudo -u postgres createdb babuki --owner=babuki
 
+# CREATE EXTENSION requires superuser — babuki isn't one, so this has to
+# run as postgres, once, before migrations. Then migration 0002's own
+# CREATE EXTENSION IF NOT EXISTS just no-ops for babuki (already exists).
+sudo -u postgres psql -d babuki -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
 sudo systemctl enable postgresql nginx
 sudo systemctl restart postgresql nginx
 

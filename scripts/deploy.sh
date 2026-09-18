@@ -60,7 +60,10 @@ SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=accept-new)
 # overrides before calling this script. Every one has a safe fallback so
 # the parts of the app that don't need it still work if left blank
 # (Razorpay/MSG91-dependent routes report 503 "not configured" instead). --
-RAZORPAY_KEY_ID="${RAZORPAY_KEY_ID:-}"
+# Publishable key id (NOT a secret — Razorpay hands it to the browser in
+# Checkout). Same Razorpay account as Home, so same key id as Home's own
+# deploy.sh; the matching key SECRET is babuki/prod/razorpay-key-secret.
+RAZORPAY_KEY_ID="${RAZORPAY_KEY_ID:-rzp_live_TVcJ60rbXf8yFR}"
 NEXT_PUBLIC_RAZORPAY_KEY_ID="${NEXT_PUBLIC_RAZORPAY_KEY_ID:-$RAZORPAY_KEY_ID}"
 # Track 1 (hyperlocal vendors) ₹500/mo early-bird plan — created in the
 # Razorpay dashboard 2026-09-18 ("babuki subdomain - early bird"). Its
@@ -75,30 +78,47 @@ BABUKI_S3_BUCKET="${BABUKI_S3_BUCKET:-babuki-item-images-551362153374}"
 NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://api.babuki.com}"
 
 echo "==> [1/7] build the standalone Next.js output (apps/api ships as source — no build step, tsx runs it directly)"
-(cd "$ROOT/apps/web" && npm install && npm run build)
+# NEXT_PUBLIC_* values are inlined into the client bundle at BUILD time —
+# setting them in the box's .env afterwards does nothing. Confirmed by
+# grepping a build made without them: the bundle contained the
+# "http://localhost:8000" fallback, which would have shipped to production.
+(cd "$ROOT/apps/web" && npm install && \
+	NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
+	NEXT_PUBLIC_RAZORPAY_KEY_ID="$NEXT_PUBLIC_RAZORPAY_KEY_ID" \
+	npm run build)
 
 echo "==> [2/7] ship both apps + nginx config to $HOST"
 # /opt is root-owned by default — ubuntu can't mkdir there directly, and
 # scp can't sudo the file transfer itself, so chown it to ubuntu once,
 # up front, idempotent (harmless no-op on a re-deploy where it already
 # exists and is already owned correctly).
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p $REMOTE_DIR && sudo chown -R $SSH_USER:$SSH_USER $REMOTE_DIR && mkdir -p $REMOTE_DIR/api/db $REMOTE_DIR/web/.next"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p $REMOTE_DIR && sudo chown -R $SSH_USER:$SSH_USER $REMOTE_DIR"
+
+# Wipe what's about to be replaced, then copy into the PARENT directory.
+# `scp -r dir host:existing_dir` nests (existing_dir/dir) when the
+# destination already exists, which would silently leave the old code
+# running on any re-deploy. api/node_modules and api/.env are kept (the
+# .env is rewritten in step 3 anyway).
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "rm -rf $REMOTE_DIR/api/src $REMOTE_DIR/api/db/migrations $REMOTE_DIR/web && mkdir -p $REMOTE_DIR/api/db $REMOTE_DIR/web/apps/web/.next"
 
 # apps/api: source only (package.json + src + db) — the box runs its own
 # npm install, no node_modules transferred over the wire.
-scp -r "${SSH_OPTS[@]}" "$ROOT/apps/api/src" "$SSH_TARGET:$REMOTE_DIR/api/src"
-scp -r "${SSH_OPTS[@]}" "$ROOT/apps/api/db/migrations" "$SSH_TARGET:$REMOTE_DIR/api/db/migrations"
+scp -r "${SSH_OPTS[@]}" "$ROOT/apps/api/src" "$SSH_TARGET:$REMOTE_DIR/api/"
+scp -r "${SSH_OPTS[@]}" "$ROOT/apps/api/db/migrations" "$SSH_TARGET:$REMOTE_DIR/api/db/"
 scp "${SSH_OPTS[@]}" "$ROOT/apps/api/db/migrate.mjs" "$SSH_TARGET:$REMOTE_DIR/api/db/migrate.mjs"
 scp "${SSH_OPTS[@]}" "$ROOT/apps/api/package.json" "$ROOT/apps/api/tsconfig.json" "$SSH_TARGET:$REMOTE_DIR/api/"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd $REMOTE_DIR/api && npm install --omit=dev"
 
-# apps/web: standalone build output only
+# apps/web: standalone build output only. In this npm-workspaces monorepo
+# Next nests it as standalone/apps/web/server.js (the tracing root is the
+# repo root), so static/ and public/ belong under apps/web/ too — they're
+# NOT part of the standalone folder and must be copied next to server.js.
 scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/.next/standalone/." "$SSH_TARGET:$REMOTE_DIR/web/"
-scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/.next/static" "$SSH_TARGET:$REMOTE_DIR/web/.next/static"
+scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/.next/static" "$SSH_TARGET:$REMOTE_DIR/web/apps/web/.next/"
 # public/ is optional in Next.js — copy it if present, don't fail the
 # deploy if it's ever missing (confirmed live: it wasn't, once).
 if [ -d "$ROOT/apps/web/public" ]; then
-	scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/public" "$SSH_TARGET:$REMOTE_DIR/web/public"
+	scp -r "${SSH_OPTS[@]}" "$ROOT/apps/web/public" "$SSH_TARGET:$REMOTE_DIR/web/apps/web/"
 fi
 
 scp "${SSH_OPTS[@]}" "$ROOT/infra/nginx/babuki.conf" "$SSH_TARGET:/tmp/babuki.conf"
@@ -134,14 +154,14 @@ RAZORPAY_VENDOR_PLAN_ID=$RAZORPAY_VENDOR_PLAN_ID
 BABUKI_S3_BUCKET=$BABUKI_S3_BUCKET
 ENV
 
-cat > "$REMOTE_DIR/web/.env" <<ENV
+cat > "$REMOTE_DIR/web/apps/web/.env" <<ENV
 NODE_ENV=production
 PORT=3000
 NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 NEXT_PUBLIC_RAZORPAY_KEY_ID=$NEXT_PUBLIC_RAZORPAY_KEY_ID
 ENV
 
-echo "  wrote $REMOTE_DIR/{api,web}/.env"
+echo "  wrote $REMOTE_DIR/api/.env and $REMOTE_DIR/web/apps/web/.env"
 REMOTE
 
 echo "==> [4/7] run DB migrations"
