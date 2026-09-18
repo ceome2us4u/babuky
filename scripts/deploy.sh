@@ -25,6 +25,20 @@
 # Prereqs on THIS machine: aws CLI with $AWS_PROFILE set (senthilkumar),
 # and ssh to the box using Babuki's OWN dedicated key
 # (~/.ssh/babuki-app-box — never Home's me2us4u-app-box key).
+#
+# On the owner's machine specifically: `bash` resolves to WSL2 (confirmed
+# live 2026-09-18 — `uname -a` shows microsoft-standard-WSL2), a genuinely
+# separate Linux environment from the PowerShell prompt this is usually
+# launched from. Two consequences, both already bitten once:
+#   - PowerShell's `$env:VAR = "value"` does NOT reach this script — it
+#     silently falls back to this script's own defaults (e.g. $HOME below)
+#     instead of erroring, which looks like a bug here but isn't one.
+#   - $HOME/paths need the WSL mount form (/mnt/c/Users/<you>/...), not
+#     Git Bash's (/c/Users/<you>/...) — same file, different path.
+# Reliable fix from a PowerShell prompt: set overrides *inside* the same
+# `bash -c "..."` call so nothing crosses the PowerShell<->WSL boundary:
+#   bash -c "SSH_KEY=/mnt/c/Users/<you>/.ssh/babuki-app-box bash scripts/deploy.sh <ip>"
+# See CLAUDE.md's shell-environment section for the full story.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 

@@ -47,6 +47,39 @@ actually is; this file is about *how* to work in this repo.
   blocked by the harness until they grant it, and don't try to route
   around that block.
 
+## Shell environment on the owner's machine — `bash` is WSL2, not Git Bash
+
+Confirmed live (2026-09-18, deploying via `scripts/deploy.sh`): when the
+owner types `bash ...` at a `PS C:\...>` prompt, it resolves to **WSL2**
+(`uname -a` → `...microsoft-standard-WSL2...`, `$HOME` → `/home/<wsl-user>`),
+**not** Git Bash. This matters every time a command needs to cross the
+PowerShell↔bash boundary:
+
+- **PowerShell's `$env:VAR = "value"` does NOT propagate into WSL.** WSL is
+  a genuinely separate Linux environment; Windows process-env-var
+  inheritance that normally reaches a child process does not reach it the
+  same way. Setting a var in PowerShell then calling `bash script.sh`
+  expecting the script to see that var **will silently fall back to the
+  script's own default** instead of erroring — confirmed live: `SSH_KEY`
+  set via `$env:SSH_KEY` in PowerShell was invisible inside
+  `scripts/deploy.sh`, which fell back to `$HOME/.ssh/...` (a WSL path
+  that didn't exist) rather than failing loudly.
+- **Windows paths need the WSL mount form.** `/c/Users/prass/...` is the
+  Git-Bash/MSYS convention and does not exist inside WSL — the same file
+  is `/mnt/c/Users/prass/...` there. Using the wrong one fails silently
+  the same way (file not found, not "wrong shell").
+- **The reliable fix: set the var *inside* the same `bash -c "..."`
+  invocation**, using the WSL path form, so nothing has to cross the
+  PowerShell↔bash boundary at all:
+  ```powershell
+  bash -c "SSH_KEY=/mnt/c/Users/prass/.ssh/babuki-app-box bash scripts/deploy.sh 13.204.187.141"
+  ```
+- Before assuming which shell a `bash`/env-var problem is happening in,
+  check rather than guess a second time:
+  ```powershell
+  bash -c "echo HOME=\$HOME; uname -a"
+  ```
+
 ## Verify before you build on top
 
 `npx tsc --noEmit && npm run build && npx next lint` (from `apps/web`)

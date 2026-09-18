@@ -3,6 +3,15 @@
 Everything here is Terraform-managed and scripted — not manual steps to
 follow by hand. Two pieces:
 
+> **Shell note**: on the owner's machine, typing `bash ...` at a
+> `PS C:\...>` prompt runs **WSL2**, a separate Linux environment —
+> confirm with `bash -c "echo HOME=\$HOME; uname -a"` if unsure. PowerShell's
+> `$env:VAR = "value"` does **not** reach it, and it needs `/mnt/c/...`
+> paths, not `/c/...`. The commands below that mix an env var with a
+> `bash` call set the var *inside* the same `bash -c "..."` invocation for
+> exactly this reason — see `CLAUDE.md`'s shell-environment section for
+> the full story and how it was found.
+
 ## 1. Provisioning (`infra/terraform/`)
 
 Creates, in Babuki's own VPC (never Home's, never any resource named
@@ -22,15 +31,19 @@ Uses the same AWS account as Home (551362153374, `senthilkumar` profile)
 and separate. State lives in its own bucket, `babuki-tfstate-551362153374`
 (not Home's `me2us4u-tfstate-*`).
 
-```bash
+```powershell
 # One-time, before the first apply: generate Babuki's own dedicated SSH key
-# (never Home's me2us4u-app-box key)
-ssh-keygen -t ed25519 -f ~/.ssh/babuki-app-box -N "" -C babuki-app-box-deploy
+# (never Home's me2us4u-app-box key). Runs fine directly in PowerShell —
+# this is native Windows OpenSSH, not WSL/bash.
+ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\babuki-app-box" -N "" -C babuki-app-box-deploy
 
+# terraform itself runs fine directly in PowerShell too (it's a native exe,
+# not a bash script) — $env: works normally here, no WSL boundary involved.
 cd infra/terraform
-AWS_PROFILE=senthilkumar terraform init
-AWS_PROFILE=senthilkumar terraform plan -out=tfplan
-AWS_PROFILE=senthilkumar terraform apply tfplan
+$env:AWS_PROFILE = "senthilkumar"
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
 ```
 
 `terraform output app_box_public_ip` gives the Elastic IP `scripts/deploy.sh`
@@ -47,14 +60,30 @@ machine), runs DB migrations, issues/renews the wildcard TLS cert (DNS-01,
 idempotent — `*.babuki.com` also covers `api.babuki.com`), and (re)starts
 both `babuki-api` (:8000) and `babuki-web` (:3000) under PM2.
 
-```bash
-scripts/deploy.sh "$(cd infra/terraform && AWS_PROFILE=senthilkumar terraform output -raw app_box_public_ip)"
+`scripts/deploy.sh` is a bash script, so it runs under WSL on this
+machine — get the IP from `terraform output` (PowerShell, above) and pass
+it in explicitly rather than trying to chain the two across the
+PowerShell↔WSL boundary in one line:
+
+```powershell
+terraform output -raw app_box_public_ip   # from infra/terraform — copy the IP it prints
+cd ..\..
+bash scripts/deploy.sh <the-ip>
+```
+
+If it also needs an override (e.g. a non-default `SSH_KEY`), set that
+*inside* the same `bash -c "..."` call, using the WSL `/mnt/c/...` path
+form — see the shell note at the top of this file:
+
+```powershell
+bash -c "SSH_KEY=/mnt/c/Users/prass/.ssh/babuki-app-box bash scripts/deploy.sh <the-ip>"
 ```
 
 Non-secret config (Razorpay's publishable key id, the vendor plan id,
 MSG91's template id) are plain values inside `scripts/deploy.sh` itself —
-edit them there, or export overrides before calling it. Same convention
-Home's `scripts/deploy.sh` uses for its own non-secret Razorpay/MSG91 ids.
+edit them there, or set overrides the same `bash -c "VAR=... bash ..."` way
+shown above. Same convention Home's `scripts/deploy.sh` uses for its own
+non-secret Razorpay/MSG91 ids.
 
 ## Not set up yet: automated CI/CD
 
