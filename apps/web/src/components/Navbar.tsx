@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { ChevronDown, LogIn, LogOut, Menu, UserRound, X } from "lucide-react";
+import { ChevronDown, LogIn, LogOut, Menu, Store, UserRound, X } from "lucide-react";
 
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,13 @@ export function Navbar() {
                     ? user.profile.businessName
                     : "Individual / Buyer"}
                 </DropdownMenuItem>
+                {user.leadSources.includes("MERCHANT") && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard">
+                      <Store /> My storefront
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   onSelect={() => void logout()}
                   className="text-destructive focus:text-destructive"

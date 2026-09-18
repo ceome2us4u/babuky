@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { query } from "../lib/db.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
 import { requireShopOwner } from "../lib/require-shop-owner.js";
@@ -12,6 +13,20 @@ const RESERVED_SLUGS = new Set([
   "www", "api", "admin", "app", "mail", "ftp",
   "babuki", "babuky", "shop", "shops", "estimator", "terms", "contact", "get-started", "services",
 ]);
+
+// A shop's catalog is public once the shop is 'active'; before that (draft,
+// awaiting payment) or after (suspended) only its owner may read it, so a
+// vendor can build the catalog before paying and still see it if they lapse.
+async function shopVisibleTo(c: Context, shopId: string): Promise<boolean> {
+  const { rows } = await query<{ status: string; owner_phone: string }>(
+    "SELECT status, owner_phone FROM shops WHERE id = $1",
+    [shopId],
+  );
+  if (rows.length === 0) return false;
+  if (rows[0].status === "active") return true;
+  const phone = await getSessionUserPhone(c);
+  return !!phone && phone === rows[0].owner_phone;
+}
 
 // --- create / discover --------------------------------------------------
 
@@ -52,6 +67,26 @@ shops.get("/mine", async (c) => {
   return c.json({ shops: rows });
 });
 
+// Vendor-editable shop settings. Only the catalog mode for now: switching to
+// 'order' still needs a Razorpay-verified UPI ID before the storefront will
+// offer online payment (the cart falls back to WhatsApp until then).
+shops.patch("/:id", async (c) => {
+  const shopId = c.req.param("id");
+  const phone = await getSessionUserPhone(c);
+  if (!phone) return c.json({ error: "Not authenticated" }, 401);
+  if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
+
+  const body = await c.req.json().catch(() => null);
+  const mode = body?.mode;
+  if (!SHOP_MODES.includes(mode)) return c.json({ error: "mode is invalid" }, 400);
+
+  const { rows } = await query(
+    "UPDATE shops SET mode = $2 WHERE id = $1 RETURNING id, mode",
+    [shopId, mode],
+  );
+  return c.json({ shop: rows[0] });
+});
+
 // Public storefront lookup (slug.babuki.com resolves here) — the checkout
 // page builds its UPI deep link (upi://pay?pa=...&pn=...&am=...&cu=INR)
 // client-side from upi_id/verified_merchant_name, so only ever expose
@@ -61,7 +96,11 @@ shops.get("/by-slug/:slug", async (c) => {
   const slug = c.req.param("slug").toLowerCase();
 
   const { rows } = await query(
+    // owner_phone -> contact_phone: a public storefront lists how to reach the
+    // vendor (Call / WhatsApp / order handoff); the vendor opts in by
+    // publishing a shop.
     `SELECT id, slug, name, industry, mode, address_text,
+            owner_phone AS contact_phone,
             CASE WHEN is_upi_verified THEN upi_id END AS upi_id,
             CASE WHEN is_upi_verified THEN verified_merchant_name END AS verified_merchant_name,
             is_upi_verified
@@ -261,8 +300,7 @@ shops.post("/:id/subscribe", async (c) => {
 
 shops.get("/:id/categories", async (c) => {
   const shopId = c.req.param("id");
-  const { rows: shopRows } = await query("SELECT 1 FROM shops WHERE id = $1 AND status = 'active'", [shopId]);
-  if (shopRows.length === 0) return c.json({ error: "Shop not found" }, 404);
+  if (!(await shopVisibleTo(c, shopId))) return c.json({ error: "Shop not found" }, 404);
 
   const { rows } = await query(
     "SELECT id, name, sort_order FROM shop_categories WHERE shop_id = $1 ORDER BY sort_order, name",
@@ -337,8 +375,7 @@ shops.delete("/:id/categories/:categoryId", async (c) => {
 
 shops.get("/:id/items", async (c) => {
   const shopId = c.req.param("id");
-  const { rows: shopRows } = await query("SELECT 1 FROM shops WHERE id = $1 AND status = 'active'", [shopId]);
-  if (shopRows.length === 0) return c.json({ error: "Shop not found" }, 404);
+  if (!(await shopVisibleTo(c, shopId))) return c.json({ error: "Shop not found" }, 404);
 
   const { rows } = await query(
     `SELECT i.id, i.name, i.brand, i.description, i.price_paise, i.image_url,

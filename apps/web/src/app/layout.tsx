@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/config/site";
 import { Providers } from "@/components/Providers";
-import { Navbar } from "@/components/Navbar";
-import { Footer } from "@/components/Footer";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,6 +11,9 @@ export const metadata: Metadata = {
   openGraph: { type: "website", title: `${siteConfig.siteName} — ${siteConfig.tagline}` },
 };
 
+// Root layout: <html>, fonts, providers only. The marketing chrome (navbar +
+// footer) lives in the (site) route group; vendor storefronts (store/[slug],
+// reached via slug.babuki.com) get their own layout.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -26,13 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <Providers>
-          <div className="flex min-h-screen flex-col">
-            <Navbar />
-            <main className="flex-1">{children}</main>
-            <Footer />
-          </div>
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

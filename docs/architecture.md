@@ -42,10 +42,23 @@ babuky/
       db/migrations/        numbered raw-SQL migrations, no ORM — apps/api
                              owns the schema
     web/                  Next.js 14 (App Router, TS, Tailwind v4) — PAGES ONLY.
-      src/app/              / (home), /shops (merchant onboarding + nearby),
-                             /estimator, /terms, /contact
+      src/app/(site)/      marketing chrome (Navbar + Footer): / (home),
+                             /shops (merchant onboarding + nearby), /estimator,
+                             /terms, /contact, /dashboard (vendor catalog)
+      src/app/store/[slug]/ the vendor storefront, own light layout (no
+                             marketing nav). Server-rendered per request.
+      src/middleware.ts     slug.babuki.com -> /store/slug (Host header; Nginx
+                             preserves it). Apex/www/api and static assets
+                             are left alone. `slug.localhost` works in dev.
       src/components/       Navbar/Footer/Logo/AuthModal, ui/* (shadcn-style
-                             Radix primitives), shops/*, estimator/*
+                             Radix primitives), shops/*, estimator/*,
+                             store/* (Storefront, CartDialog), dashboard/*
+                             (Dashboard, CatalogManager, ItemDialog)
+      src/lib/cart.ts       per-shop localStorage cart, stock-capped, grouped
+                             by category, re-validated against the live catalog
+      src/lib/store-api.ts  server-side fetch of the public storefront data
+                             (loopback via API_INTERNAL_URL set in PM2)
+      src/lib/upi.ts        UPI intent builder (Razorpay-verified values only)
       src/lib/api.ts        apiUrl()/apiFetch() -> NEXT_PUBLIC_API_URL
                              (api.babuki.com), credentials included so the
                              session cookie rides along. No server logic, no
@@ -129,16 +142,22 @@ re-validates and persists `upi_id` / `verified_merchant_name` /
 `is_upi_verified` — `verified_merchant_name` is only ever written from
 Razorpay's own response, never trusted from client input.
 
-At checkout, the storefront (not built yet) builds a UPI deep
-link entirely client-side — `upi://pay?pa={upi_id}&pn={verified_merchant_name}&am={cart_total}&cu=INR`
+At checkout, the storefront's cart dialog builds a UPI deep
+link entirely client-side (`src/lib/upi.ts`) —
+`upi://pay?pa={upi_id}&pn={verified_merchant_name}&am={cart_total}&cu=INR&tn=…`
 — and renders it with **`qrcode.react`** (a React component, renders
 client-side with no server round-trip; the plain `qrcode` package would
-only make sense for server-generated images, which this isn't — not
-added as a dependency yet since no checkout page exists to use it in).
-`GET /shops/by-slug/:slug` (public) is what that page reads from — it
+only make sense for server-generated images, which this isn't), plus an
+"Open in my UPI app" deep link for phones. Babuki can't see whether the
+buyer actually paid, so the dialog says so and offers a WhatsApp handoff of
+the order (grouped by category) for the buyer to send the vendor.
+`GET /shops/by-slug/:slug` (public) is what the page reads from — it
 only ever returns `upi_id`/`verified_merchant_name` once
 `is_upi_verified` is true, so a QR can't be built from a VPA Razorpay
-hasn't confirmed.
+hasn't confirmed; a Direct Order shop without a verified VPA degrades to
+the WhatsApp/call handoff. It also returns the vendor's `contact_phone` (a
+public storefront lists how to reach the vendor; publishing a shop is the
+opt-in).
 
 **Razorpay scope stays exactly three things** — vendor subscription billing
 (₹500/mo), consultancy deposits (₹100), and VPA validation during
@@ -185,9 +204,13 @@ could have been anything).
   button), `/shops/:id/subscribe` (Razorpay Subscription
   against the locked plan), `/shops/:id/upi/{validate,confirm}` (vendor-only
   — see the UPI checkout section above).
-- `/shops/:id/categories`, `/shops/:id/items` — **public GET** (a live
-  storefront is browsable without login), vendor-only POST/PATCH/DELETE
-  (session + `require-shop-owner.ts` ownership check).
+- `PATCH /shops/:id` — vendor-only; switches Display Only ↔ Direct Order.
+- `/shops/:id/categories`, `/shops/:id/items` — **public GET while the shop
+  is `active`** (a live storefront is browsable without login); for a
+  `draft`/`suspended` shop only its owner can read them, so a vendor can
+  build the catalog before paying and still see it if they lapse.
+  Vendor-only POST/PATCH/DELETE (session + `require-shop-owner.ts`
+  ownership check).
 - `/shops/:id/upload-url` — presigned S3 PUT URL for a vendor's item photo
   (browser uploads directly, no image bytes through this server).
 - `/geocode/reverse` — server-side Nominatim proxy.
@@ -269,15 +292,23 @@ Terraform would then manage.
   verification + a dynamic QR instead of an uploaded static QR image; the
   Terms page's e-sign panel is shown disabled ("coming soon") because the
   mock's version only fired a success toast and recorded nothing.
-- **Not built yet**: the live storefront page a buyer lands on at
-  `[slug].babuki.com` (catalog, +/- cart grouped by category, out-of-stock
-  states, UPI QR via `qrcode.react` — the dependency is installed) with
-  the subdomain-to-page routing it needs; and the vendor's
-  catalog-management dashboard. Until those ship, a paid shop is
-  activated and listed in Shops Nearby, but its "Open storefront" link
-  shows the marketing site. `/contact` exists but is deliberately not
-  linked from the nav or footer — the mock's footer is a clean three-part
-  row with no secondary links.
+- **Real, beyond the mock** (the mock only had the provisioning flow):
+  the live storefront at `[slug].babuki.com` (catalog grouped by category
+  with brand, +/- cart capped at vendor-set stock, out-of-stock/low-stock
+  states, cart grouped by category, UPI QR with the cart total for Direct
+  Order, WhatsApp/call handoff otherwise) and the vendor dashboard at
+  `/dashboard` (categories, items with S3 photo upload, stock, hide/show,
+  Display Only ↔ Direct Order, UPI verification, subscribe/renew). A
+  vendor can build the catalog while the shop is still `draft`; it goes
+  public when the subscription webhook activates it. Photo uploads need the
+  bucket's CORS rule (`aws_s3_bucket_cors_configuration` in `storage.tf`,
+  applied by the owner) — without it the browser blocks the presigned PUT.
+  `/contact` exists but is deliberately not linked from the nav or footer —
+  the mock's footer is a clean three-part row with no secondary links.
+- **Tested how**: the storefront and dashboard were driven in a real
+  browser against a throwaway mock API (no live shop existed yet); a full
+  run against production needs a working OTP login (waiting on the DLT
+  template).
 - **Needs real credentials from the owner** (placeholders in Secrets
   Manager / `.env.example` until then): `MSG91_AUTH_KEY`,
   `RAZORPAY_KEY_SECRET` (copyable from Home's account-wide values),

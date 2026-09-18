@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { BadgeCheck, Check, Loader2, LocateFixed, Lock, Store, X } from "lucide-react";
@@ -383,6 +384,9 @@ export function MerchantFlow() {
                 </p>
               </div>
               {mode === "order" && shopId && <UpiSetup shopId={shopId} />}
+              <Button asChild className="w-full" size="lg">
+                <Link href="/dashboard">Add your items &amp; photos →</Link>
+              </Button>
             </div>
           ) : (
             <div className="flex gap-2">

@@ -21,6 +21,21 @@ resource "aws_s3_bucket_public_access_block" "item_images" {
   restrict_public_buckets = false
 }
 
+# The vendor dashboard (babuki.com) PUTs photos straight to S3 through a
+# presigned URL, so the browser needs a CORS preflight to succeed. Without
+# this every upload fails in the browser even though the presign is valid.
+# Scoped to Babuki's own origins; GET/HEAD for storefronts on any subdomain.
+resource "aws_s3_bucket_cors_configuration" "item_images" {
+  bucket = aws_s3_bucket.item_images.id
+
+  cors_rule {
+    allowed_origins = ["https://babuki.com", "https://*.babuki.com"]
+    allowed_methods = ["PUT", "GET", "HEAD"]
+    allowed_headers = ["*"]
+    max_age_seconds = 3000
+  }
+}
+
 # Object bodies (item photos) are meant to be publicly viewable on the
 # storefront pages — only GetObject, never List/Put/Delete.
 resource "aws_s3_bucket_policy" "item_images_public_read" {

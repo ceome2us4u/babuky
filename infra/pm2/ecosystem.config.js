@@ -46,6 +46,10 @@ module.exports = {
         // to the machine name (ip-10-20-1-x) — Nginx proxies to 127.0.0.1,
         // so pin it or the upstream refuses connections.
         HOSTNAME: "127.0.0.1",
+        // Server-rendered storefront pages fetch from the API over loopback
+        // (same box) instead of out through DNS/TLS and back in. Unset -> the
+        // app falls back to NEXT_PUBLIC_API_URL (see src/lib/store-api.ts).
+        API_INTERNAL_URL: "http://127.0.0.1:8000",
       },
     },
   ],
