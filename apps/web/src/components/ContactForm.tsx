@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiUrl } from "@/lib/api";
 
 type Status = "idle" | "submitting" | "sent" | "error";
 
@@ -15,7 +16,7 @@ export function ContactForm() {
     const payload = Object.fromEntries(new FormData(form).entries());
 
     try {
-      const res = await fetch("/api/contact", {
+      const res = await fetch(apiUrl("/contact"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

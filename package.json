@@ -6,8 +6,11 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace apps/web",
+    "dev:api": "npm run dev --workspace apps/api",
     "build": "npm run build --workspace apps/web",
     "start": "npm run start --workspace apps/web",
-    "lint": "npm run lint --workspace apps/web"
+    "start:api": "npm run start --workspace apps/api",
+    "lint": "npm run lint --workspace apps/web",
+    "typecheck:api": "npm run typecheck --workspace apps/api"
   }
 }

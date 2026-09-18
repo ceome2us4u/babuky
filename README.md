@@ -1,73 +1,59 @@
-# Babuky
+# Babuky / Babuki
 
-Public marketing/brand site for Babuky, a B2B software services company —
-we act as the software delivery team for other companies (SaaS/product
-engineering and custom software development).
+Babuky and Babuki are the same product (two domain spellings, to be merged
+later) — a dual-offering B2B platform owned by Me2Us4U (OPC) Private
+Limited: hyperlocal vendor storefronts on `[slug].babuki.com`, and a
+software-consultancy scope estimator. The pages currently in `apps/web` are
+still the original generic scaffold; the real content/UI rewrite (matching
+the product's actual copy and theme) is a separate, later pass.
 
-## Monorepo layout
+**Full architecture — read this first**: [`docs/architecture.md`](docs/architecture.md)
+(data model, API surface, infra, the Me2Us4U isolation rule, what's real vs.
+still placeholder). Kept current as a standing rule — see [`CLAUDE.md`](CLAUDE.md).
+
+## Monorepo layout — two services
 
 ```
 babuky/
   apps/
-    web/        Next.js (App Router) + TypeScript + Tailwind marketing site
+    api/        Hono backend (api.babuki.com) — all business logic, DB, auth, payments
+    web/        Next.js frontend (babuki.com + *.babuki.com) — pages only, zero server logic
+  infra/        Terraform + Nginx + PM2 config
+  scripts/deploy.sh
   package.json  npm workspaces root
 ```
 
-`packages/` doesn't exist yet — add it when there's a second app or code that
-needs to be shared across apps.
+Split deliberately mirrors Home's `core-api`/`main-web` shape so the
+backend can serve a future mobile app too — see `docs/architecture.md`
+for the reasoning.
 
 ## Getting started
 
 ```bash
 npm install
-npm run dev
+npm run dev:api    # apps/api on :8000
+npm run dev        # apps/web on :3000, in another terminal
 ```
 
-Site runs at http://localhost:3000.
-
-Copy `.env.example` to `apps/web/.env.local` and fill in real values before
-testing the payment or contract flows.
-
-## Where things live
-
-- **Brand/contact/services copy**: [`apps/web/src/config/site.ts`](apps/web/src/config/site.ts) —
-  single source of truth. Edit this file to change the brand name, tagline,
-  services list, or contact details; every page reads from it.
-- **Pages**: `apps/web/src/app/*` (Home, Services, Contact, Get Started,
-  Contracts).
-- **Razorpay integration**: `apps/web/src/lib/razorpay.ts` +
-  `apps/web/src/app/api/razorpay/create-order` + `PayButton` component.
-- **E-signature (Documenso)**: `apps/web/src/lib/documenso.ts` +
-  `apps/web/src/app/api/contracts/create-envelope`. Documenso was chosen over
-  DocuSign because it's open-source and self-hostable on AWS, avoiding
-  per-envelope SaaS pricing — swap it out if you'd rather use something else.
+Copy `.env.example` to `apps/api/.env.local` and `apps/web/.env.local` and
+fill in real values before testing the payment/auth/catalog flows.
 
 ## Deploying to AWS
 
-Target is a plain **EC2 instance** — no Lambda, no Amplify Hosting, no
-ECS/Fargate/App Runner. `apps/web/Dockerfile` (multi-stage, Next.js
-`output: "standalone"`) builds a self-contained image you run directly on
-the box with `docker run`, behind Nginx (TLS termination + reverse proxy to
-the container's port 3000) and pointed at by Route 53.
+Single, dedicated **EC2 instance** in its own VPC — no Lambda, no Amplify
+Hosting, no ECS/Fargate/App Runner, nothing shared with any other project.
+See [`infra/README.md`](infra/README.md) for the full setup and
+`docs/architecture.md`'s infrastructure section for how the two services
+are routed on one box.
 
-If you'd rather not use Docker on the instance at all, the standalone build
-also runs directly with plain Node: `npm run build` in `apps/web`, then
-`node .next/standalone/server.js` under a process manager (e.g. `pm2` or a
-systemd unit) so it survives reboots/crashes.
-
-Domain: `babuki.com` is already on Route 53. `babuki.in` and `babuky.com`
-are on GoDaddy and will transfer to AWS after 2026-11-16, then get routed to
-this same site — no code changes needed for that, just DNS/Route 53 config
-once the transfer completes.
-
-## TODO before this is a finished, live site
+## TODO before this is a finished, live product
 
 - [ ] Confirm final brand name/domain spelling in `site.ts`
-- [ ] Fill in `contact.email` / `contact.phone` in `site.ts` once Google
-      Workspace is set up
-- [ ] Get Razorpay keys into `apps/web/.env.local` (account already exists)
-- [ ] Stand up a Documenso instance (or pick a different e-sign tool) and add
-      its API URL/key
+- [ ] Get real `MSG91_AUTH_KEY` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET`
+      into Secrets Manager (`babuki/prod/*`) — see `docs/architecture.md`'s
+      isolation section for which are copyable from Home vs. need a fresh value
 - [ ] Wire the contact form to real email delivery (e.g. AWS SES)
-- [ ] Provision the actual AWS hosting (Amplify app or ECS service) and point
-      Route 53 at it
+- [ ] `terraform apply` the infra, then run `scripts/deploy.sh`
+- [ ] Rewrite the actual pages (Home/Shops/Estimator/Terms) and theme to
+      match the real product content and wire them to `apps/api` — the
+      current pages are still the original generic scaffold

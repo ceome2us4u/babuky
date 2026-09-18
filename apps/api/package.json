@@ -1,0 +1,26 @@
+{
+  "name": "@babuky/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "node db/migrate.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.686.0",
+    "@aws-sdk/s3-request-presigner": "^3.686.0",
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.14",
+    "pg": "^8.13.1",
+    "razorpay": "^2.9.4",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.5.4"
+  }
+}

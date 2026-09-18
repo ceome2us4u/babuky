@@ -2,6 +2,7 @@
 
 import Script from "next/script";
 import { useState } from "react";
+import { apiUrl } from "@/lib/api";
 
 declare global {
   interface Window {
@@ -26,7 +27,7 @@ export function PayButton({ amountInPaise, label = "Pay deposit" }: PayButtonPro
 
     setStatus("loading");
     try {
-      const res = await fetch("/api/razorpay/create-order", {
+      const res = await fetch(apiUrl("/razorpay/create-order"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amountInPaise }),

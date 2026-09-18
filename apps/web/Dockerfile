@@ -1,5 +1,7 @@
 # Multi-stage build producing a standalone Next.js server.
-# Runs unchanged on ECS/Fargate, App Runner, or a plain EC2 instance.
+# Not the primary deploy path (PM2 running the standalone build directly on
+# the EC2 box is — see infra/README.md); kept around as an unused, optional
+# alternative in case containerizing on the same box is wanted later.
 
 FROM node:20-alpine AS deps
 WORKDIR /app
