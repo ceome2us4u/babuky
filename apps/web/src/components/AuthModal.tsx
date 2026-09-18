@@ -83,8 +83,8 @@ export function AuthModal() {
   };
 
   const verify = async () => {
-    if (!/^\d{4,6}$/.test(otp)) {
-      toast.error("Enter the OTP from your SMS");
+    if (!/^\d{4}$/.test(otp)) {
+      toast.error("Enter the 4-digit OTP");
       return;
     }
     setBusy(true);
@@ -191,15 +191,15 @@ export function AuthModal() {
         ) : step === "otp" ? (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Enter the code sent to <span className="text-gold">+91 {phone}</span>
+              Enter the 4-digit code sent to <span className="text-gold">+91 {phone}</span>
             </p>
             <Input
               inputMode="numeric"
-              maxLength={6}
+              maxLength={4}
               placeholder="0000"
               className="text-center text-2xl"
               value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
             />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <Button variant="link" className="h-auto p-0 text-gold" onClick={() => setStep("phone")}>

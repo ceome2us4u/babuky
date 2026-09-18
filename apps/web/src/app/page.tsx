@@ -105,7 +105,7 @@ export default function Home() {
       </section>
 
       {/* Trust strip */}
-      <section className="mx-auto max-w-6xl px-6 pb-8 pt-8">
+      <section className="mx-auto max-w-6xl px-6 pb-8">
         <div className="panel flex flex-col items-center gap-4 rounded-lg border-l-4 border-l-gold p-6 text-center sm:flex-row sm:text-left">
           <BrandBadge className="size-12 shrink-0" />
           <p className="text-xs text-muted-foreground md:text-sm">

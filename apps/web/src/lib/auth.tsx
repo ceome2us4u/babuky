@@ -66,6 +66,8 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   requestLogin: (source: LeadSource, onSuccess?: () => void) => void;
+  /** Tags the signed-in user with a lead source (the API gates endpoints on it). */
+  ensureLeadSource: (source: LeadSource) => Promise<void>;
   closeModal: () => void;
   sendOtp: (phone: string, consent: boolean) => Promise<void>;
   /** Verifies the OTP; resolves to whether the user still has to fill in a profile. */
@@ -135,6 +137,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const ensureLeadSource = useCallback(
+    async (source: LeadSource) => {
+      if (!user || user.leadSources.includes(source)) return;
+      await apiPost("/auth/lead-source", { leadSource: source });
+      setUser((u) =>
+        u && !u.leadSources.includes(source) ? { ...u, leadSources: [...u.leadSources, source] } : u,
+      );
+    },
+    [user],
+  );
+
   const sendOtp = useCallback(
     async (phone: string, consent: boolean) => {
       await apiPost("/auth/otp/send", { phone, leadSource: pendingSource, consent });
@@ -179,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       requestLogin,
+      ensureLeadSource,
       closeModal: () => setModalOpen(false),
       sendOtp,
       verifyOtp,
@@ -188,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       pendingSource,
       modalOpen,
     }),
-    [user, loading, requestLogin, sendOtp, verifyOtp, completeProfile, finishLogin, logout, pendingSource, modalOpen],
+    [user, loading, requestLogin, ensureLeadSource, sendOtp, verifyOtp, completeProfile, finishLogin, logout, pendingSource, modalOpen],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

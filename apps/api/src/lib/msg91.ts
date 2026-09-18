@@ -28,6 +28,8 @@ export async function sendOtp(phone: string) {
   const url = new URL(`${MSG91_BASE_URL}/otp`);
   url.searchParams.set("mobile", toMsg91Mobile(phone));
   url.searchParams.set("template_id", templateId);
+  // The UI is a 4-digit code screen; MSG91's default length is 6.
+  url.searchParams.set("otp_length", "4");
   if (process.env.MSG91_SENDER_ID) {
     url.searchParams.set("sender", process.env.MSG91_SENDER_ID);
   }

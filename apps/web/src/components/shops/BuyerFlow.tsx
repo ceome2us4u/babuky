@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ExternalLink, LocateFixed, MapPin, Search, Store } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import { LocateFixed, MapPin, MessageCircle, Phone, QrCode, Search, Store } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ShopsMap, type ShopPin } from "@/components/shops/MapLazy";
 import { INDUSTRIES, BASE } from "@/components/shops/MerchantFlow";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { siteConfig } from "@/config/site";
 
 type NearbyShop = {
   id: string;
@@ -18,10 +19,34 @@ type NearbyShop = {
   name: string;
   industry: string;
   mode: "display" | "order";
+  phone: string; // +91XXXXXXXXXX
+  // Only present once Razorpay has verified the vendor's UPI ID.
+  upi_id: string | null;
+  verified_merchant_name: string | null;
   lat: number;
   lng: number;
   distance_km: number;
 };
+
+type CatalogItem = {
+  id: string;
+  name: string;
+  brand: string;
+  price_paise: number;
+  is_available: boolean;
+  in_stock: boolean;
+  category_name: string | null;
+};
+
+const inr = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN")}`;
+
+// Plain UPI intent: the buyer's UPI app opens with payee prefilled and they
+// enter the amount. Built from Razorpay-verified values only; the money goes
+// buyer -> vendor and never touches Babuki.
+const upiLink = (shop: NearbyShop) =>
+  `upi://pay?pa=${encodeURIComponent(shop.upi_id ?? "")}&pn=${encodeURIComponent(
+    shop.verified_merchant_name ?? shop.name,
+  )}&cu=INR`;
 
 export function BuyerFlow() {
   const { user, requestLogin } = useAuth();
@@ -32,6 +57,8 @@ export function BuyerFlow() {
   const [filter, setFilter] = useState<string>("All");
   const [shops, setShops] = useState<NearbyShop[]>([]);
   const [loading, setLoading] = useState(false);
+  const [active, setActive] = useState<{ shop: NearbyShop; kind: "catalog" | "qr" } | null>(null);
+  const [items, setItems] = useState<CatalogItem[] | null>(null);
 
   const locate = () => {
     if (!navigator.geolocation) return;
@@ -73,6 +100,24 @@ export function BuyerFlow() {
     };
   }, [unlocked, user, center, radius, filter, query]);
 
+  // The catalog is public; load it when the Catalog dialog opens.
+  useEffect(() => {
+    if (active?.kind !== "catalog") return;
+    let stale = false;
+    setItems(null);
+    apiFetch<{ items: CatalogItem[] }>(`/shops/${active.shop.id}/items`)
+      .then((res) => !stale && setItems(res.items))
+      .catch(() => {
+        if (!stale) {
+          setItems([]);
+          toast.error("Couldn't load this catalog");
+        }
+      });
+    return () => {
+      stale = true;
+    };
+  }, [active]);
+
   if (!unlocked || !user) {
     return (
       <div className="panel rounded-xl p-10 text-center">
@@ -97,6 +142,11 @@ export function BuyerFlow() {
     lng: s.lng,
     distanceKm: s.distance_km,
   }));
+
+  const grouped = (items ?? []).reduce<Record<string, CatalogItem[]>>((acc, i) => {
+    (acc[i.category_name ?? "Other"] ??= []).push(i);
+    return acc;
+  }, {});
 
   return (
     <div className="space-y-6">
@@ -135,9 +185,13 @@ export function BuyerFlow() {
               {r} km
             </button>
           ))}
-          <Button variant="outline" size="sm" className="h-auto" onClick={locate} aria-label="Use my location">
+          <button
+            onClick={locate}
+            aria-label="Use my location"
+            className="rounded-md border border-border px-3 py-1.5 text-muted-foreground hover:border-gold hover:text-gold"
+          >
             <LocateFixed className="size-4" />
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -152,17 +206,86 @@ export function BuyerFlow() {
             <p className="mt-1 text-xs text-muted-foreground">
               {s.industry} · {s.distance_km.toFixed(1)} km away
             </p>
-            <Button asChild size="sm" className="mt-4 w-full">
-              <a href={`https://${s.slug}.${siteConfig.domain}`} target="_blank" rel="noreferrer">
-                <Store className="size-4" /> Open storefront <ExternalLink className="size-3.5" />
-              </a>
-            </Button>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Button asChild size="sm" variant="outline">
+                <a href={`tel:${s.phone}`}>
+                  <Phone className="size-4" /> Call
+                </a>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <a href={`https://wa.me/${s.phone.replace(/^\+/, "")}`} target="_blank" rel="noreferrer">
+                  <MessageCircle className="size-4" /> WhatsApp
+                </a>
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setActive({ shop: s, kind: "catalog" })}>
+                <Store className="size-4" /> Catalog
+              </Button>
+              <Button
+                size="sm"
+                disabled={!s.upi_id}
+                title={s.upi_id ? undefined : "This shop hasn't enabled UPI payments yet"}
+                onClick={() => setActive({ shop: s, kind: "qr" })}
+              >
+                <QrCode className="size-4" /> Pay via QR
+              </Button>
+            </div>
           </div>
         ))}
         {!loading && shops.length === 0 && (
-          <p className="text-sm text-muted-foreground">No shops match this filter within {radius} km yet.</p>
+          <p className="text-sm text-muted-foreground">No shops match this filter within {radius} km.</p>
         )}
       </div>
+
+      <Dialog open={!!active} onOpenChange={(o) => !o && setActive(null)}>
+        <DialogContent className="panel max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {active?.kind === "qr" ? "Pay via UPI QR" : "Catalog"} — {active?.shop.name}
+            </DialogTitle>
+          </DialogHeader>
+          {active?.kind === "qr" ? (
+            <div className="space-y-3 text-center">
+              <div className="mx-auto grid w-fit place-items-center rounded-lg border border-gold/40 bg-white p-3">
+                <QRCodeSVG value={upiLink(active.shop)} size={176} level="M" />
+              </div>
+              <p className="text-sm font-medium">
+                {active.shop.verified_merchant_name}
+                <span className="block text-xs font-normal text-muted-foreground">{active.shop.upi_id}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Payment goes directly from you to the merchant&apos;s UPI account. Babuki is an
+                intermediary and never holds your money.
+              </p>
+            </div>
+          ) : items === null ? (
+            <p className="text-sm text-muted-foreground">Loading catalog…</p>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This shop hasn&apos;t listed any items yet.</p>
+          ) : (
+            <div className="space-y-4 text-sm">
+              {Object.entries(grouped).map(([category, list]) => (
+                <section key={category}>
+                  <h3 className="mb-2 text-xs font-semibold uppercase text-gold">{category}</h3>
+                  <ul className="space-y-2">
+                    {list.map((i) => (
+                      <li key={i.id} className="flex justify-between gap-3 border-b border-border/60 pb-2">
+                        <span className={i.in_stock && i.is_available ? "" : "text-muted-foreground"}>
+                          {i.name}
+                          {i.brand && <span className="text-xs text-muted-foreground"> · {i.brand}</span>}
+                          {!(i.in_stock && i.is_available) && (
+                            <span className="ml-2 text-xs font-medium text-destructive">Out of stock</span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-gold">{inr(i.price_paise)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
