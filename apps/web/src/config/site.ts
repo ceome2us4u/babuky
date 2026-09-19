@@ -8,6 +8,8 @@ export const siteConfig = {
   siteName: "Babuki",
   domain: "babuki.com",
   legalEntity: "Me2Us4U (OPC) Private Limited",
+  /** The parent company's own site — the footer logo links here. */
+  parentUrl: "https://www.me2us4u.com",
   tagline: "The Complete Business Engine",
   description:
     "Babuki provisions hyperlocal shop storefronts at ₹500/month and scopes custom software projects. From Me2Us4U (OPC) Pvt Ltd.",

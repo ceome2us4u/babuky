@@ -16,12 +16,21 @@ export function Footer() {
       {/* Dedicated right-corner container: flush to the right edge, stacked on mobile,
           pinned across the full footer height on desktop. */}
       <div className="flex justify-end md:absolute md:inset-y-0 md:right-0 md:items-stretch">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/brand/me2us-logo.jpg"
-          alt="Me2Us4U"
-          className="h-11 w-auto object-contain object-right md:h-full md:w-auto"
-        />
+        <a
+          href={siteConfig.parentUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Me2Us4U — visit www.me2us4u.com"
+          title="Visit www.me2us4u.com"
+          className="flex transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-full"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/me2us-logo.jpg"
+            alt="Me2Us4U"
+            className="h-11 w-auto object-contain object-right md:h-full md:w-auto"
+          />
+        </a>
       </div>
     </footer>
   );
