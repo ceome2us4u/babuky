@@ -3,7 +3,7 @@ import { siteConfig } from "@/config/site";
 
 export function Footer() {
   return (
-    <footer className="relative mt-20 border-t border-border bg-card">
+    <footer className="relative border-t border-border bg-card">
       <div className="flex w-full flex-col items-center gap-4 px-6 py-5 text-center md:flex-row md:gap-8 md:py-4 md:pr-32 md:text-left">
         <Wordmark />
         <p className="min-w-0 max-w-3xl text-center text-xs leading-relaxed text-muted-foreground md:mx-auto">

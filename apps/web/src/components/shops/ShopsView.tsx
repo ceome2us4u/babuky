@@ -26,11 +26,12 @@ export function ShopsView() {
 
       <Tabs defaultValue="merchant">
         <TabsList className="mb-8">
-          <TabsTrigger value="merchant">
+          {/* explicit gap: in a flex row the space between icon and label collapses */}
+          <TabsTrigger value="merchant" className="gap-2">
             <Store className="size-4" /> I own a shop
           </TabsTrigger>
-          <TabsTrigger value="buyer">
-            <Search className="size-4" /> Shops Nearby
+          <TabsTrigger value="buyer" className="gap-2">
+            <Search className="size-4" /> Find shops near me
           </TabsTrigger>
         </TabsList>
         <TabsContent value="merchant">

@@ -5,7 +5,9 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="flex min-h-screen flex-col">
       <Navbar />
-      <main className="flex-1">{children}</main>
+      {/* flex column so a page (the home hero) can grow to fill a tall screen
+          instead of leaving a dead gap above the footer */}
+      <main className="flex flex-1 flex-col">{children}</main>
       <Footer />
     </div>
   );

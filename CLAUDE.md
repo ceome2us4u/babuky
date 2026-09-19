@@ -116,6 +116,20 @@ browser needs that differs by mode comes from the API, not a build-time
 `NEXT_PUBLIC_*`. See `docs/architecture.md` → "Modes: TEST / LIVE". Before
 inventing a mechanism for something like this, check how Home already does it.
 
+## UI must look professional at every size — non-negotiable
+
+Check any UI change at **1920×1080, 1366×768 / 1280×720 and a 375px phone**
+before shipping, by measuring (not just eyeballing): no dead gaps, nothing
+covered, the home hero's two cards and buttons above the fold on a 1280×720
+laptop. Rules learned the hard way: bottom bars are `sticky bottom-0`, never
+`fixed` (a fixed bar covers the footer at the end of the page); on a phone a
+bar may use ≤ ~15% of the screen; icons beside labels in a flex row need an
+explicit `gap-*` (the whitespace collapses); large-monitor sizing starts at
+`2xl` (1536px), not `xl`, so 1280–1440 laptops keep the compact above-the-fold
+layout. User-facing copy is plain language — never internal terms (lead-source
+tags like `MERCHANT`, "provision", "OTP login"). When testing locally, make sure
+port 3100 isn't still held by an old `next start` (it serves the OLD build).
+
 ## Every input is validated, on both sides — non-negotiable
 
 Any new field goes through `apps/web/src/lib/validate.ts` (sanitise as you

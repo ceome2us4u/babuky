@@ -119,13 +119,13 @@ export function BuyerFlow() {
     return (
       <div className="panel rounded-xl p-10 text-center">
         <MapPin className="mx-auto size-8 text-gold" />
-        <h2 className="mt-4 text-2xl font-bold">Shops Nearby</h2>
+        <h2 className="mt-4 text-2xl font-bold">Find shops near you</h2>
         <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
-          A quick OTP login is required to view shops near you or save vendors. Buyer numbers are tagged{" "}
-          <span className="text-gold">LOCAL_BUYER</span>.
+          Confirm your mobile number to see the shops around you, call or message them, and browse what they sell. It only
+          takes a minute.
         </p>
         <Button className="mt-6" size="lg" onClick={() => requestLogin("LOCAL_BUYER", () => setUnlocked(true))}>
-          Login to see shops near me
+          Show me shops near me
         </Button>
       </div>
     );
