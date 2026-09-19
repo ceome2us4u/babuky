@@ -1,7 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CalendarCheck, Check, Info, Plus, RotateCcw, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarCheck, Check, Globe, Info, Plus, RotateCcw, Sparkles } from "lucide-react";
+
+import { useFeatures } from "@/lib/features";
+import { domainInput, domainQueryError } from "@/lib/validate";
 
 import { Button } from "@/components/ui/button";
 import { RequestModal } from "@/components/estimator/RequestModal";
@@ -19,6 +22,18 @@ import {
 export function EstimatorView() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
+  // Arrived from the shop signup's "On request" link (?domain=gold.com): start
+  // with "My own web address" picked and remember which address they wanted.
+  // Only while the own-domain feature is on; otherwise the page is unchanged.
+  const { ownDomain } = useFeatures();
+  const [askedDomain, setAskedDomain] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ownDomain) return;
+    const d = domainInput(new URLSearchParams(window.location.search).get("domain") ?? "");
+    if (!d.includes(".") || domainQueryError(d)) return;
+    setAskedDomain(d);
+    setPicked((cur) => new Set([...cur, "dns"]));
+  }, [ownDomain]);
 
   const selected = useMemo(() => ALL_ITEMS.filter((i) => picked.has(i.id)), [picked]);
   const { low, high } = sum(selected);
@@ -47,6 +62,17 @@ export function EstimatorView() {
             estimated price updates as you go. You pay nothing to see it.
           </p>
         </header>
+
+        {askedDomain && (
+          <div className="panel mb-8 flex items-start gap-3 rounded-xl border-gold/40 p-5 text-sm">
+            <Globe className="mt-0.5 size-5 shrink-0 text-gold" />
+            <p className="text-muted-foreground">
+              You asked about <span className="font-semibold text-foreground">{askedDomain}</span>. We&apos;ve added
+              &ldquo;My own web address&rdquo; below — book a call and we&apos;ll tell you exactly what this address costs
+              and set it up for you.
+            </p>
+          </div>
+        )}
 
         {/* Start from a goal, not a catalog */}
         <section className="mb-10">
@@ -172,7 +198,14 @@ export function EstimatorView() {
         </div>
       </div>
 
-      <RequestModal open={open} onOpenChange={setOpen} items={selected} low={low} high={high} />
+      <RequestModal
+        open={open}
+        onOpenChange={setOpen}
+        items={selected}
+        low={low}
+        high={high}
+        requestedDomain={askedDomain}
+      />
     </div>
   );
 }

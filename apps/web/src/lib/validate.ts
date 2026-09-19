@@ -107,6 +107,37 @@ export function slugError(slug: string): string | null {
   return null;
 }
 
+// Own web address search (mirrors apps/api/src/lib/domains.ts parseDomainQuery):
+// a name of 3–40 of a-z0-9 with single inner hyphens, optionally followed by
+// an ending the merchant typed (".shop", ".co.in").
+const DOMAIN_LABEL_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const DOMAIN_ENDING_RE = /^(\.[a-z]{2,24}){1,2}$/;
+
+/** Sanitises as you type: lower-case, only a-z 0-9 - and dots, one dot at a time. */
+export function domainInput(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[^a-z0-9.-]/g, "")
+    .replace(/^[-.]+/, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/\.{2,}/g, ".")
+    .slice(0, 60);
+}
+
+export function domainQueryError(q: string): string | null {
+  if (!q) return null;
+  const dot = q.indexOf(".");
+  const label = dot < 0 ? q : q.slice(0, dot);
+  const ending = dot < 0 ? "" : q.slice(dot);
+  if (label.length < 3) return "At least 3 letters or numbers";
+  if (label.length > 40) return "At most 40 letters or numbers";
+  if (!DOMAIN_LABEL_RE.test(label)) return "Can't start or end with a hyphen";
+  if (ending && ending !== "." && !DOMAIN_ENDING_RE.test(ending.replace(/\.$/, ""))) return "That ending doesn't look right";
+  return null;
+}
+
 export function upiInput(raw: string): string {
   return raw.replace(/\s/g, "").slice(0, LIMITS.upi);
 }

@@ -10,7 +10,9 @@ import { SHOP_MODES } from "../lib/constants.js";
 import { industryFilter, normalizeIndustry } from "../lib/industries.js";
 import { parseRadiusKm } from "../lib/search.js";
 import { findSlugHolder, noPaymentInFlight, releaseDraft } from "../lib/slug-hold.js";
-import { VENDOR_SUBSCRIPTION_CYCLES, fetchSubscription } from "../lib/razorpay.js";
+import { VENDOR_SUBSCRIPTION_CYCLES, fetchSubscription, type ShopPlan } from "../lib/razorpay.js";
+import { ownDomainEnabled } from "../lib/features.js";
+import { holdDomain, isOfferedDomain } from "../lib/domains.js";
 import { LIMITS, NAME_RE, UPI_NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
 
 export const shops = new Hono();
@@ -80,13 +82,18 @@ shops.get("/mine", async (c) => {
 
   const { rows } = await query(
     `SELECT s.id, s.slug, s.name, s.industry, s.mode, s.status, s.address_text,
-            s.upi_id, s.verified_merchant_name, s.is_upi_verified,
-            sub.status AS subscription_status
+            s.upi_id, s.verified_merchant_name, s.is_upi_verified, s.plan,
+            sub.status AS subscription_status,
+            d.domain AS own_domain, d.status AS own_domain_status, d.grace_until AS own_domain_grace_until
      FROM shops s
      LEFT JOIN LATERAL (
        SELECT status FROM shop_subscriptions
        WHERE shop_id = s.id ORDER BY created_at DESC LIMIT 1
      ) sub ON true
+     LEFT JOIN LATERAL (
+       SELECT domain, status, grace_until FROM shop_domains
+       WHERE shop_id = s.id AND status <> 'released' ORDER BY created_at DESC LIMIT 1
+     ) d ON true
      WHERE s.owner_phone = $1
      ORDER BY s.created_at DESC`,
     [phone],
@@ -126,11 +133,13 @@ shops.get("/by-slug/:slug", async (c) => {
     // owner_phone -> contact_phone: a public storefront lists how to reach the
     // vendor (Call / WhatsApp / order handoff); the vendor opts in by
     // publishing a shop.
+    // own_domain: the shop's own address once it's served (for the canonical link).
     `SELECT id, slug, name, industry, mode, address_text,
             owner_phone AS contact_phone,
             CASE WHEN is_upi_verified THEN upi_id END AS upi_id,
             CASE WHEN is_upi_verified THEN verified_merchant_name END AS verified_merchant_name,
-            is_upi_verified
+            is_upi_verified,
+            (SELECT d.domain FROM shop_domains d WHERE d.shop_id = shops.id AND d.status = 'active' LIMIT 1) AS own_domain
      FROM shops
      WHERE slug = $1 AND status = 'active'`,
     [slug],
@@ -179,17 +188,40 @@ shops.post("/", async (c) => {
   // Direct Order shops start without a UPI ID — the owner adds and confirms it
   // in a follow-up step (POST /:id/upi/confirm), not at shop creation.
 
+  // "own web address" plan (₹1,500): only while FEATURE_OWN_DOMAIN is on.
+  const plan: ShopPlan = body?.plan === "premium" ? "premium" : "standard";
+  const domain = str(body?.domain).toLowerCase();
+  if (plan === "premium") {
+    if (!ownDomainEnabled()) return c.json({ error: "That plan isn't available right now." }, 400);
+    if (!isOfferedDomain(domain)) return c.json({ error: "Pick a web address marked Available." }, 400);
+  }
+  // Sets the draft's plan and (for premium) holds its chosen domain. On a
+  // problem with the domain the shop is kept; the merchant just picks again.
+  const withPlan = async (shop: { id: string; slug: string }, status: 200 | 201, resumed = false) => {
+    await query("UPDATE shops SET plan = $2 WHERE id = $1 AND status = 'draft'", [shop.id, plan]);
+    if (plan === "premium") {
+      const problem = await holdDomain(shop.id, domain);
+      if (problem) return c.json({ error: problem, field: "domain", shop }, 409);
+    } else {
+      await query(
+        "UPDATE shop_domains SET status = 'released', updated_at = now() WHERE shop_id = $1 AND status = 'held'",
+        [shop.id],
+      );
+    }
+    return c.json(resumed ? { shop, resumed } : { shop }, status);
+  };
+
   const holder = await findSlugHolder(slug);
   if (holder) {
     if (holder.owner_phone === phone && holder.status === "draft") {
       // Backed out at payment and came back: carry on with the same shop instead of "already taken".
-      const { rows } = await query(
+      const { rows } = await query<{ id: string; slug: string }>(
         `UPDATE shops SET name = $2, owner_name = $3, industry = $4, mode = $5,
                 geog = ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography, address_text = $8
           WHERE id = $1 AND status = 'draft' RETURNING id, slug`,
         [holder.id, name, ownerName, industry, mode, lng, lat, addressText],
       );
-      return c.json({ shop: rows[0], resumed: true });
+      return withPlan(rows[0], 200, true);
     }
     if (holder.abandoned && (await noPaymentInFlight(holder.id))) {
       await releaseDraft(holder.id);
@@ -199,13 +231,13 @@ shops.post("/", async (c) => {
   }
 
   try {
-    const { rows } = await query(
+    const { rows } = await query<{ id: string; slug: string }>(
       `INSERT INTO shops (owner_phone, slug, name, owner_name, industry, mode, geog, address_text)
        VALUES ($1, $2, $3, $4, $5, $6, ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography, $9)
        RETURNING id, slug`,
       [phone, slug, name, ownerName, industry, mode, lng, lat, addressText],
     );
-    return c.json({ shop: rows[0] }, 201);
+    return withPlan(rows[0], 201);
   } catch (error) {
     if (error instanceof Error && "code" in error && (error as { code?: string }).code === "23505") {
       return c.json({ error: "slug is already taken" }, 409);
@@ -360,16 +392,22 @@ shops.post("/:id/subscribe", async (c) => {
     return c.json({ error: "Shop not found" }, 404);
   }
 
+  // The shop's plan picks the Razorpay plan: ₹500 (standard) or ₹1,500 (own web
+  // address). A premium shop keeps renewing on premium even if the feature
+  // switch is later turned off — the switch only stops new sales.
+  const { rows: planRows } = await query<{ plan: ShopPlan }>("SELECT plan::text AS plan FROM shops WHERE id = $1", [shopId]);
+  const plan: ShopPlan = planRows[0]?.plan === "premium" ? "premium" : "standard";
+
   try {
     // Backed out and came back? Reuse the subscription that is still waiting for a
     // payment instead of piling up a new one at Razorpay on every attempt — but only
-    // one of the right length: an old subscription made with a length that banks
-    // refuse (see VENDOR_SUBSCRIPTION_CYCLES) would just fail the payment again.
+    // one of the right length and plan: an old subscription made with a length that
+    // banks refuse (see VENDOR_SUBSCRIPTION_CYCLES) would just fail the payment again.
     const { rows: open } = await query<{ razorpay_subscription_id: string; razorpay_plan_id: string }>(
       `SELECT razorpay_subscription_id, razorpay_plan_id FROM shop_subscriptions
-        WHERE shop_id = $1 AND status = 'pending' AND razorpay_subscription_id IS NOT NULL
+        WHERE shop_id = $1 AND status = 'pending' AND razorpay_subscription_id IS NOT NULL AND plan = $2
         ORDER BY created_at DESC LIMIT 1`,
-      [shopId],
+      [shopId, plan],
     );
     if (open[0]) {
       try {
@@ -385,11 +423,11 @@ shops.post("/:id/subscribe", async (c) => {
       }
     }
 
-    const subscription = await createVendorSubscription(shopId);
+    const subscription = await createVendorSubscription(shopId, plan);
     await query(
-      `INSERT INTO shop_subscriptions (shop_id, razorpay_subscription_id, razorpay_plan_id, status)
-       VALUES ($1, $2, $3, 'pending')`,
-      [shopId, subscription.id, subscription.plan_id],
+      `INSERT INTO shop_subscriptions (shop_id, razorpay_subscription_id, razorpay_plan_id, status, plan, locked_monthly_amount)
+       VALUES ($1, $2, $3, 'pending', $4, $5)`,
+      [shopId, subscription.id, subscription.plan_id, plan, plan === "premium" ? 1500 : 500],
     );
     // keyId: the browser opens Checkout with the key for the ACTIVE mode.
     return c.json({ subscription, keyId: razorpayKeyId() });

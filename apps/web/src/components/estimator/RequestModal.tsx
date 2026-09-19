@@ -28,12 +28,15 @@ export function RequestModal({
   items,
   low,
   high,
+  requestedDomain = null,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   items: EstimatorItem[];
   low: number;
   high: number;
+  /** A web address they asked about from the shop signup, if any. */
+  requestedDomain?: string | null;
 }) {
   const { user, requestLogin, ensureLeadSource } = useAuth();
   const [name, setName] = useState("");
@@ -68,6 +71,7 @@ export function RequestModal({
         name: name.trim(),
         email: email.trim(),
         description: desc.trim(),
+        ...(requestedDomain ? { requestedDomain } : {}),
       });
       await openRazorpayCheckout({
         keyId: lead.keyId,
@@ -122,6 +126,11 @@ export function RequestModal({
                   <li key={i.id}>• {i.title}</li>
                 ))}
               </ul>
+              {requestedDomain && (
+                <p className="mt-2 text-sm">
+                  Web address you asked about: <span className="font-semibold">{requestedDomain}</span>
+                </p>
+              )}
               <p className="mt-3 text-sm font-semibold text-gold-gradient">
                 Estimated price: {inr(low)} – {inr(high)}
               </p>

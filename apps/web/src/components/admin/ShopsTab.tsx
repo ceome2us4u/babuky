@@ -56,6 +56,8 @@ export function ShopsTab({ onExpired }: { onExpired: () => void }) {
                     <span className="text-xs text-muted-foreground">{s.slug}.babuki.com</span>
                     <Pill tone={statusTone(s.status)}>{s.status === "active" ? "live" : s.status}</Pill>
                     <Pill>{s.mode === "order" ? "Direct Order" : "Display only"}</Pill>
+                    {s.plan === "premium" && <Pill tone="gold">₹1,500 · own address</Pill>}
+                    {s.own_domain_alert && <Pill tone="red">needs a look</Pill>}
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {s.industry} · {s.owner_name} · {s.phone} · {fmtDate(s.created_at)}
@@ -93,6 +95,27 @@ export function ShopsTab({ onExpired }: { onExpired: () => void }) {
                         ? `${s.subscription_status}${s.current_period_end ? ` · renews ${fmtDate(s.current_period_end)}` : ""}`
                         : "none started"}
                     </Field>
+                    {(s.plan === "premium" || s.own_domain) && (
+                      <>
+                        <Field label="Own web address">
+                          {s.own_domain ? `${s.own_domain} — ${s.own_domain_status}` : "not chosen yet"}
+                        </Field>
+                        <Field label="Domain cost (Porkbun)">
+                          {[
+                            s.own_domain_cost_cents != null ? `paid $${(s.own_domain_cost_cents / 100).toFixed(2)}` : "",
+                            s.own_domain_renewal_cents != null ? `renews $${(s.own_domain_renewal_cents / 100).toFixed(2)}/yr` : "",
+                            s.own_domain_expires_at ? `expires ${fmtDate(s.own_domain_expires_at)}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </Field>
+                        {(s.own_domain_alert || s.own_domain_last_error) && (
+                          <Field label="Domain problem" wide>
+                            {[s.own_domain_alert, s.own_domain_last_error].filter(Boolean).join(" — ")}
+                          </Field>
+                        )}
+                      </>
+                    )}
                     <Field label="Items in catalog">{String(s.item_count)}</Field>
                     <Field label="Created">{fmtDate(s.created_at)}</Field>
                   </Details>

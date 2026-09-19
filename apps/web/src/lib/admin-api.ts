@@ -28,6 +28,8 @@ export type Estimate = {
   account_type: "business" | "individual" | null;
   business_name: string | null;
   city: string | null;
+  /** A web address they asked about from the shop signup ("On request"); "" if none. */
+  requested_domain: string;
 };
 
 export type ContactMessage = {
@@ -61,6 +63,14 @@ export type AdminShop = {
   subscription_status: string | null;
   current_period_end: string | null;
   item_count: number;
+  plan: "standard" | "premium";
+  own_domain: string | null;
+  own_domain_status: string | null;
+  own_domain_cost_cents: number | null;
+  own_domain_renewal_cents: number | null;
+  own_domain_expires_at: string | null;
+  own_domain_alert: string | null;
+  own_domain_last_error: string | null;
 };
 
 export type AdminUser = {

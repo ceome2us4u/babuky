@@ -18,6 +18,10 @@ import { openRazorpayCheckout } from "@/lib/razorpay";
 import { siteConfig } from "@/config/site";
 import { IndustryPicker } from "@/components/shops/IndustryPicker";
 import { customIndustryError, industryValue } from "@/lib/industries";
+import { useFeatures } from "@/lib/features";
+import { PLAN_PRICE, PlanChoice, type Plan } from "@/components/shops/PlanChoice";
+import { DomainSearch } from "@/components/shops/DomainSearch";
+import { DomainProgress, useShopDomain } from "@/components/shops/DomainProgress";
 
 // Default map centre (Bengaluru) until the vendor moves the pin.
 export const BASE: [number, number] = [12.9716, 77.5946];
@@ -26,6 +30,14 @@ type MyShop = { id: string; slug: string; status: "draft" | "active" | "suspende
 
 export function MerchantFlow() {
   const { user, requestLogin } = useAuth();
+  // The ₹1,500 own web address plan exists only while the API's switch is on;
+  // off (or not known yet) = exactly the ₹500 subdomain flow.
+  const { ownDomain } = useFeatures();
+  const [planPick, setPlanPick] = useState<Plan | null>(null);
+  const plan: Plan = ownDomain ? (planPick ?? "premium") : "standard";
+  const premium = plan === "premium";
+  const [domain, setDomain] = useState<string | null>(null);
+  const [domainSlug, setDomainSlug] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
   const [step, setStep] = useState(1);
 
@@ -52,6 +64,10 @@ export function MerchantFlow() {
   const [paid, setPaid] = useState(false);
   const [live, setLive] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const domainState = useShopDomain(shopId, paid && premium);
+  // The shop's babuki.com address: typed (Starter) or derived from the domain name (own web address).
+  const shopSlug = premium ? (domainSlug ?? "") : slug;
+  const price = PLAN_PRICE[plan].toLocaleString("en-IN");
 
   useEffect(() => {
     if (!user?.profile) return;
@@ -153,7 +169,8 @@ export function MerchantFlow() {
       let id = shopId;
       if (!id) {
         const created = await apiPost<{ shop: { id: string } }>("/shops", {
-          slug,
+          slug: shopSlug,
+          ...(premium ? { plan, domain } : {}),
           name: shopName.trim(),
           ownerName: ownerName.trim(),
           industry,
@@ -172,7 +189,9 @@ export function MerchantFlow() {
       await openRazorpayCheckout({
         keyId,
         subscriptionId: subscription.id,
-        description: `${slug}.${siteConfig.domain} · ₹500/month, locked for life`,
+        description: premium
+          ? `${domain} · ₹${price}/month, locked for life`
+          : `${slug}.${siteConfig.domain} · ₹500/month, locked for life`,
         prefill: { name: ownerName, email: user?.profile?.email, contact: user?.phone },
         onSuccess: () => {
           setPaid(true);
@@ -185,7 +204,8 @@ export function MerchantFlow() {
     } catch (e) {
       setPaying(false);
       if (e instanceof ApiError && e.status === 409) {
-        toast.error("That subdomain was just taken — pick another");
+        toast.error(premium ? e.message : "That subdomain was just taken — pick another");
+        if (premium) setDomain(null);
         setStep(1);
         return;
       }
@@ -199,7 +219,12 @@ export function MerchantFlow() {
         <Store className="mx-auto size-8 text-gold" />
         <h2 className="mt-4 text-2xl font-bold">Set up your online shop in 4 easy steps</h2>
         <ol className="mx-auto mt-4 flex max-w-2xl flex-wrap justify-center gap-2 text-xs text-muted-foreground">
-          {["Pick your web address", "Add your shop details", "Mark your place on the map", "Pay ₹500/month & go live"].map(
+          {[
+            "Pick your web address",
+            "Add your shop details",
+            "Mark your place on the map",
+            ownDomain ? "Pay monthly & go live" : "Pay ₹500/month & go live",
+          ].map(
             (s, i) => (
               <li key={s} className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5">
                 <span className="grid size-5 place-items-center rounded-full bg-secondary text-[11px] font-bold text-burgundy">
@@ -223,46 +248,35 @@ export function MerchantFlow() {
 
   return (
     <div className="space-y-6">
-      <Stepper step={step} labels={["Subdomain", "Store & catalog", "Location", "Checkout"]} />
+      <Stepper step={step} labels={[ownDomain ? "Web address" : "Subdomain", "Store & catalog", "Location", "Checkout"]} />
 
-      {step === 1 && (
+      {step === 1 && ownDomain && (
+        <div className="panel space-y-5 rounded-xl p-5 sm:p-8">
+          <div>
+            <h3 className="text-lg font-bold">Step 1 — Choose your web address</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Pick how customers will find your shop online. You can upgrade later.
+            </p>
+          </div>
+          <PlanChoice plan={plan} onPlan={setPlanPick} />
+          {premium ? (
+            <DomainSearch selected={domain} onSelect={setDomain} onSlug={setDomainSlug} showBabukiAddress />
+          ) : (
+            <SlugField slug={slug} setSlug={setSlug} checking={checking} available={available} availNote={availNote} />
+          )}
+          <Button
+            disabled={premium ? !domain || !domainSlug : available !== true}
+            onClick={() => setStep(2)}
+          >
+            Continue
+          </Button>
+        </div>
+      )}
+
+      {step === 1 && !ownDomain && (
         <div className="panel space-y-4 rounded-xl p-8">
           <h3 className="text-lg font-bold">Step 1 — Claim your subdomain</h3>
-          <div className="flex items-center gap-2">
-            <Input
-              value={slug}
-              maxLength={24}
-              placeholder="Your shop name"
-              aria-label="Your shop's web address"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(e) => setSlug(slugInput(e.target.value))}
-            />
-            <span className="whitespace-nowrap text-sm text-muted-foreground">.{siteConfig.domain}</span>
-          </div>
-          <div className="min-h-6 text-sm">
-            {checking && (
-              <span className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Checking availability…
-              </span>
-            )}
-            {!checking && available === true && (
-              <span className="flex items-center gap-2 text-gold">
-                <Check className="size-4" />{" "}
-                {availNote === "yours"
-                  ? `${slug}.${siteConfig.domain} is your unfinished shop — carry on with it`
-                  : `${slug}.${siteConfig.domain} is available`}
-              </span>
-            )}
-            {!checking && available === false && (
-              <span className="flex items-center gap-2 text-destructive">
-                <X className="size-4" />{" "}
-                {slugError(slug) ??
-                  (availNote === "reserved" ? "That name is reserved — try another name" : "Already taken — try another name")}
-              </span>
-            )}
-          </div>
+          <SlugField slug={slug} setSlug={setSlug} checking={checking} available={available} availNote={availNote} />
           <Button disabled={available !== true} onClick={() => setStep(2)}>
             Continue
           </Button>
@@ -391,7 +405,15 @@ export function MerchantFlow() {
         <div className="panel space-y-5 rounded-xl p-8">
           <h3 className="text-lg font-bold">Step 4 — Checkout</h3>
           <dl className="space-y-2 text-sm">
-            <Row k="Storefront" v={`${slug}.${siteConfig.domain}`} />
+            {premium ? (
+              <>
+                <Row k="Plan" v="Your own web address" />
+                <Row k="Web address" v={domain ?? ""} />
+                <Row k="Also works at" v={`${shopSlug}.${siteConfig.domain}`} />
+              </>
+            ) : (
+              <Row k="Storefront" v={`${slug}.${siteConfig.domain}`} />
+            )}
             <Row k="Store name" v={shopName} />
             <Row k="Owner" v={ownerName} />
             <Row k="Contact" v={user.phone} />
@@ -400,11 +422,38 @@ export function MerchantFlow() {
             <Row k="Location" v={`${lat.toFixed(4)}, ${lng.toFixed(4)}`} />
           </dl>
           <div className="rounded-lg border border-gold/40 bg-secondary/40 p-5">
-            <p className="text-2xl font-black text-gold-gradient">₹500 / month</p>
-            <p className="text-xs text-muted-foreground">
-              <Lock className="mr-1 inline size-3" /> Early bird lifetime lock — your rate never moves to
-              ₹1,500/mo.
-            </p>
+            <p className="text-2xl font-black text-gold-gradient">₹{price} / month</p>
+            {ownDomain ? (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {premium && "Includes your own web address, its yearly renewal and secure (https) setup. No other charges. "}
+                  <Lock className="mr-1 inline size-3" /> Early bird lifetime lock — your rate never goes up.
+                </p>
+                {!paid && (
+                  <button
+                    className="mt-2 text-xs font-medium text-burgundy underline"
+                    onClick={() => {
+                      // A draft made on the other plan is updated (or replaced) on the next Pay.
+                      setShopId(null);
+                      if (premium) {
+                        setPlanPick("standard");
+                        setSlug((s) => s || shopSlug);
+                      } else {
+                        setPlanPick("premium");
+                      }
+                      setStep(1);
+                    }}
+                  >
+                    {premium ? "Switch to the ₹500 Babuki address instead" : "Want your own .in or .com? Upgrade for ₹1,500/month"}
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                <Lock className="mr-1 inline size-3" /> Early bird lifetime lock — your rate never moves to
+                ₹1,500/mo.
+              </p>
+            )}
           </div>
           {paid ? (
             <div className="space-y-4">
@@ -416,22 +465,33 @@ export function MerchantFlow() {
                     <>
                       <a
                         className="text-gold hover:underline"
-                        href={`https://${slug}.${siteConfig.domain}`}
+                        href={`https://${shopSlug}.${siteConfig.domain}`}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        {slug}.{siteConfig.domain}
+                        {shopSlug}.{siteConfig.domain}
                       </a>{" "}
                       is live and listed in the local buyer directory.
                     </>
                   ) : (
                     <span className="inline-flex items-center gap-2">
-                      <Loader2 className="size-4 animate-spin" /> Activating {slug}.{siteConfig.domain}… this
+                      <Loader2 className="size-4 animate-spin" /> Activating {shopSlug}.{siteConfig.domain}… this
                       takes a few seconds.
                     </span>
                   )}
                 </p>
+                {premium && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Your own address <span className="font-semibold text-foreground">{domain}</span> usually follows within
+                    30 minutes. You can close this page — you&apos;ll see its progress on your dashboard.
+                  </p>
+                )}
               </div>
+              {premium && (
+                <div className="rounded-lg border border-border p-5">
+                  <DomainProgress state={domainState} slug={shopSlug} shopLive={live} />
+                </div>
+              )}
               {mode === "order" && shopId && <UpiSetup shopId={shopId} />}
               <Button asChild className="w-full" size="lg">
                 <Link href="/dashboard">Add your items &amp; photos →</Link>
@@ -443,13 +503,68 @@ export function MerchantFlow() {
                 Back
               </Button>
               <Button disabled={paying} onClick={() => void pay()}>
-                {paying ? "Opening checkout…" : "Pay ₹500 with Razorpay"}
+                {paying ? "Opening checkout…" : `Pay ₹${price} with Razorpay`}
               </Button>
             </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+/** The yourshop.babuki.com box (Starter plan, and the whole Step 1 while the own-domain feature is off). */
+function SlugField({
+  slug,
+  setSlug,
+  checking,
+  available,
+  availNote,
+}: {
+  slug: string;
+  setSlug: (s: string) => void;
+  checking: boolean;
+  available: boolean | null;
+  availNote: "yours" | "reserved" | "taken" | null;
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <Input
+          value={slug}
+          maxLength={24}
+          placeholder="Your shop name"
+          aria-label="Your shop's web address"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          onChange={(e) => setSlug(slugInput(e.target.value))}
+        />
+        <span className="whitespace-nowrap text-sm text-muted-foreground">.{siteConfig.domain}</span>
+      </div>
+      <div className="min-h-6 text-sm">
+        {checking && (
+          <span className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Checking availability…
+          </span>
+        )}
+        {!checking && available === true && (
+          <span className="flex items-center gap-2 text-gold">
+            <Check className="size-4" />{" "}
+            {availNote === "yours"
+              ? `${slug}.${siteConfig.domain} is your unfinished shop — carry on with it`
+              : `${slug}.${siteConfig.domain} is available`}
+          </span>
+        )}
+        {!checking && available === false && (
+          <span className="flex items-center gap-2 text-destructive">
+            <X className="size-4" />{" "}
+            {slugError(slug) ??
+              (availNote === "reserved" ? "That name is reserved — try another name" : "Already taken — try another name")}
+          </span>
+        )}
+      </div>
+    </>
   );
 }
 

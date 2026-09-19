@@ -174,14 +174,22 @@ fi
 
 scp "${SSH_OPTS[@]}" "$ROOT/infra/nginx/babuki.conf" "$SSH_TARGET:/tmp/babuki.conf"
 scp "${SSH_OPTS[@]}" "$ROOT/infra/pm2/ecosystem.config.js" "$SSH_TARGET:$REMOTE_DIR/ecosystem.config.js"
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mv /tmp/babuki.conf /etc/nginx/sites-available/babuki.conf && sudo ln -sf /etc/nginx/sites-available/babuki.conf /etc/nginx/sites-enabled/babuki.conf && sudo rm -f /etc/nginx/sites-enabled/default"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p /etc/nginx/babuki-domains /var/www/acme && sudo mv /tmp/babuki.conf /etc/nginx/sites-available/babuki.conf && sudo ln -sf /etc/nginx/sites-available/babuki.conf /etc/nginx/sites-enabled/babuki.conf && sudo rm -f /etc/nginx/sites-enabled/default"
+
+# Own web address plan: root's certificate job (infra/domains/). Idle until a
+# shop has its own domain; installed on every deploy so it stays current.
+scp "${SSH_OPTS[@]}" "$ROOT/infra/domains/babuki-domain-certs.sh" "$ROOT/infra/domains/babuki-domain-certs.service" \
+	"$ROOT/infra/domains/babuki-domain-certs.timer" "$SSH_TARGET:/tmp/"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo install -m 755 /tmp/babuki-domain-certs.sh /usr/local/bin/babuki-domain-certs \
+	&& sudo install -m 644 /tmp/babuki-domain-certs.service /tmp/babuki-domain-certs.timer /etc/systemd/system/ \
+	&& rm -f /tmp/babuki-domain-certs.* && sudo systemctl daemon-reload && sudo systemctl enable --now babuki-domain-certs.timer >/dev/null"
 
 echo "==> [3/7] assemble apps/api/.env + apps/web/.env on the box (Secrets Manager via instance role)"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
 	REGION="$REGION" REMOTE_DIR="$REMOTE_DIR" \
 	APP_MODE_OVERRIDE="$APP_MODE_OVERRIDE" \
 	RAZORPAY_KEY_ID_LIVE="$RAZORPAY_KEY_ID_LIVE" RAZORPAY_VENDOR_PLAN_ID_LIVE="$RAZORPAY_VENDOR_PLAN_ID_LIVE" \
-	MSG91_OTP_TEMPLATE_ID="$MSG91_OTP_TEMPLATE_ID" \
+	MSG91_OTP_TEMPLATE_ID="$MSG91_OTP_TEMPLATE_ID" PUBLIC_IP="$HOST" \
 	BABUKI_S3_BUCKET="$BABUKI_S3_BUCKET" NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
 	ADMIN_EMAILS="$ADMIN_EMAILS" \
 	'bash -s' <<'REMOTE'
@@ -196,6 +204,10 @@ opt_sec() { sec "$1" 2>/dev/null || true; }
 # else (first deploy) LIVE. Must be read BEFORE the `cat >` below truncates it.
 CURRENT_MODE="$(grep -s '^APP_MODE=' "$REMOTE_DIR/api/.env" | tail -1 | cut -d= -f2 || true)"
 case "${APP_MODE_OVERRIDE:-$CURRENT_MODE}" in test) APP_MODE=test ;; *) APP_MODE=live ;; esac
+# Same for the own web address feature switch and its settings (flipped with
+# scripts/set-own-domain.sh): a deploy keeps them; first deploy = OFF.
+KEPT="$(grep -sE '^(FEATURE_OWN_DOMAIN|DOMAIN_PRICE_CAP_USD|DOMAIN_TLDS_OFFERED|DOMAIN_TLDS_ON_REQUEST|DOMAIN_IN_LIMIT)=' "$REMOTE_DIR/api/.env" || true)"
+grep -q '^FEATURE_OWN_DOMAIN=' <<<"$KEPT" || KEPT="$(printf '%s\nFEATURE_OWN_DOMAIN=off' "$KEPT")"
 
 # Both credential sets side by side (Home's convention): the API picks
 # <NAME>_LIVE or <NAME>_TEST by APP_MODE and fails closed if the active one is
@@ -217,9 +229,17 @@ RAZORPAY_KEY_ID_TEST=$(opt_sec babuki/prod/razorpay-key-id-test)
 RAZORPAY_KEY_SECRET_TEST=$(opt_sec babuki/prod/razorpay-key-secret-test)
 RAZORPAY_WEBHOOK_SECRET_TEST=$(opt_sec babuki/prod/razorpay-webhook-secret-test)
 RAZORPAY_VENDOR_PLAN_ID_TEST=$(opt_sec babuki/prod/razorpay-vendor-plan-id-test)
+RAZORPAY_PREMIUM_PLAN_ID_LIVE=$(opt_sec babuki/prod/razorpay-premium-plan-id)
+RAZORPAY_PREMIUM_PLAN_ID_TEST=$(opt_sec babuki/prod/razorpay-premium-plan-id-test)
+PORKBUN_API_KEY_LIVE=$(opt_sec babuki/prod/porkbun-api-key)
+PORKBUN_SECRET_KEY_LIVE=$(opt_sec babuki/prod/porkbun-secret-key)
+PORKBUN_API_KEY_TEST=$(opt_sec babuki/prod/porkbun-api-key-test)
+PORKBUN_SECRET_KEY_TEST=$(opt_sec babuki/prod/porkbun-secret-key-test)
+PUBLIC_IP=$PUBLIC_IP
 BABUKI_S3_BUCKET=$BABUKI_S3_BUCKET
 ADMIN_EMAILS=$ADMIN_EMAILS
 ENV
+printf '%s\n' "$KEPT" | sed '/^$/d' >> "$REMOTE_DIR/api/.env"
 
 cat > "$REMOTE_DIR/web/apps/web/.env" <<ENV
 NODE_ENV=production
@@ -227,7 +247,7 @@ PORT=3000
 NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV
 
-echo "  APP_MODE=$APP_MODE"
+echo "  APP_MODE=$APP_MODE  $(grep '^FEATURE_OWN_DOMAIN=' "$REMOTE_DIR/api/.env")"
 
 echo "  wrote $REMOTE_DIR/api/.env and $REMOTE_DIR/web/apps/web/.env"
 REMOTE
