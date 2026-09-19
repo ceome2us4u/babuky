@@ -97,8 +97,13 @@ RAZORPAY_KEY_ID_LIVE="${RAZORPAY_KEY_ID_LIVE:-rzp_live_TVcJ60rbXf8yFR}"
 # apps/api/src/lib/razorpay.ts). A future ₹1,500/mo cohort gets a second,
 # separate plan id — this one is never edited to change price.
 RAZORPAY_VENDOR_PLAN_ID_LIVE="${RAZORPAY_VENDOR_PLAN_ID_LIVE:-plan_TdVzzDQoYIGSj0}"
-MSG91_OTP_TEMPLATE_ID="${MSG91_OTP_TEMPLATE_ID:-}"
-MSG91_SENDER_ID="${MSG91_SENDER_ID:-}"
+# OTP SMS template. For now Babuki uses the SAME DLT-approved MSG91 template as
+# Me2Us4U's other product (Home) — "##number## is your Me2Us4U verification
+# code..." under Home's DLT header — until Babuki has its own header + template;
+# then only this id (and MSG91_OTP_VAR if the merge variable's name differs)
+# changes. Non-secret, a plain literal like Home's own deploy.sh. The message
+# is sent through MSG91's Flow API with a code Babuki generates (lib/msg91.ts).
+MSG91_OTP_TEMPLATE_ID="${MSG91_OTP_TEMPLATE_ID:-6a9ab17d99a12dbca202c3c4}"
 # Who may sign in to the admin console (comma-separated). Passwords are set with
 # scripts/set-admin-password.sh, never here.
 ADMIN_EMAILS="${ADMIN_EMAILS:-ceo@me2us4u.com}"
@@ -176,7 +181,7 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
 	REGION="$REGION" REMOTE_DIR="$REMOTE_DIR" \
 	APP_MODE_OVERRIDE="$APP_MODE_OVERRIDE" \
 	RAZORPAY_KEY_ID_LIVE="$RAZORPAY_KEY_ID_LIVE" RAZORPAY_VENDOR_PLAN_ID_LIVE="$RAZORPAY_VENDOR_PLAN_ID_LIVE" \
-	MSG91_OTP_TEMPLATE_ID="$MSG91_OTP_TEMPLATE_ID" MSG91_SENDER_ID="$MSG91_SENDER_ID" \
+	MSG91_OTP_TEMPLATE_ID="$MSG91_OTP_TEMPLATE_ID" \
 	BABUKI_S3_BUCKET="$BABUKI_S3_BUCKET" NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
 	ADMIN_EMAILS="$ADMIN_EMAILS" \
 	'bash -s' <<'REMOTE'
@@ -204,7 +209,6 @@ DATABASE_URL=$(sec babuki/prod/db-url)
 SESSION_SECRET=$(sec babuki/prod/session-secret)
 MSG91_AUTH_KEY=$(opt_sec babuki/prod/msg91-auth-key)
 MSG91_OTP_TEMPLATE_ID=$MSG91_OTP_TEMPLATE_ID
-MSG91_SENDER_ID=$MSG91_SENDER_ID
 RAZORPAY_KEY_ID_LIVE=$RAZORPAY_KEY_ID_LIVE
 RAZORPAY_KEY_SECRET_LIVE=$(opt_sec babuki/prod/razorpay-key-secret)
 RAZORPAY_WEBHOOK_SECRET_LIVE=$(opt_sec babuki/prod/razorpay-webhook-secret)

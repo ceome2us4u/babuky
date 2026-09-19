@@ -1,7 +1,8 @@
 import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { isTestMode, publicError } from "../lib/mode.js";
-import { OTP_LENGTH, OTP_TEST_CODE, sendOtp, verifyOtp } from "../lib/msg91.js";
+import { OTP_LENGTH, OTP_TEST_CODE, OtpLimitError, sendOtp, verifyOtp } from "../lib/msg91.js";
+import { allow, clientIp } from "../lib/rate-limit.js";
 import { query } from "../lib/db.js";
 import { createSession, destroySession, SESSION_COOKIE, SESSION_TTL_SECONDS } from "../lib/session.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
@@ -62,6 +63,12 @@ auth.post("/otp/send", async (c) => {
     return c.json({ error: "consent is required" }, 400);
   }
 
+  // Every real SMS costs money: besides the per-phone limits in lib/msg91.ts,
+  // one IP can't request more than 10 codes an hour (test mode sends nothing).
+  if (!isTestMode() && !allow(`otp:${clientIp(c)}`, 10, 60 * 60 * 1000)) {
+    return c.json({ error: "Too many codes were requested from this connection. Please try again later." }, 429);
+  }
+
   const phone = `+91${phoneDigits}`;
   const { rows } = await query<{ has_password: boolean }>(
     "SELECT password_hash IS NOT NULL AS has_password FROM users WHERE phone = $1",
@@ -79,9 +86,10 @@ auth.post("/otp/send", async (c) => {
     // APP_MODE=test: no SMS is ever sent; the code comes back as `devOtpHint`
     // (same field name Home uses) so the UI can show it instead of leaving
     // people waiting for a text that will never arrive.
-    const sent = purpose === "reset" && !user ? { testMode: isTestMode() } : await sendOtp(phone);
+    const sent = purpose === "reset" && !user ? { testMode: isTestMode() } : await sendOtp(phone, purpose);
     return c.json(sent.testMode ? { ok: true, devOtpHint: OTP_TEST_CODE } : { ok: true });
   } catch (error) {
+    if (error instanceof OtpLimitError) return c.json({ error: error.message }, 429);
     const message = publicError(error, "We couldn't send your OTP right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
   }
@@ -106,7 +114,7 @@ auth.post("/otp/verify", async (c) => {
 
   let verified: boolean;
   try {
-    verified = await verifyOtp(phone, otp);
+    verified = await verifyOtp(phone, otp, purpose);
   } catch (error) {
     const message = publicError(error, "We couldn't check your OTP right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
