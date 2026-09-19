@@ -364,10 +364,20 @@ it does not break checkout.
 
 **Test mode is dangerous by design** — anyone can pass the phone check for any
 number, so anyone can create an account for, or **reset the password of**, any
-number that has no real owner yet — so it is
-for the period before Babuki has a DLT-approved SMS sender. Flip to `live`
-before real users rely on their accounts; the API logs a loud warning at
-startup while it is on.
+number that has no real owner yet — so it exists only for building/testing.
+The API logs a loud warning at startup while it is on.
+
+**Current state (2026-09-19): the box runs `APP_MODE=live`.** Before the flip,
+everything created during testing (3 accounts, 3 shops, 2 estimator requests,
+their TEST Razorpay subscriptions and the one uploaded image, including every
+S3 object version) was deleted, so production started empty. Pre-flight before
+flipping: the LIVE Razorpay plan (`plan_TdVzzDQoYIGSj0`, ₹500 monthly) fetched
+fine with the LIVE key, and MSG91 accepted the key + Home's template (with a
+deliberately invalid mobile, so nothing was sent). **Not yet exercised in
+production:** an SMS actually arriving on a real phone, a real ₹500
+subscription / ₹100 deposit, and the LIVE UPI-ID check. If SMS delivery turns
+out not to work, `bash scripts/set-app-mode.sh test <host>` restores test mode
+immediately.
 
 ## Input validation
 
@@ -536,15 +546,13 @@ Terraform would then manage.
   `/contact` exists but is deliberately not linked from the nav or footer —
   the mock's footer is a clean three-part row with no secondary links.
 - **Tested how**: the storefront and dashboard were driven in a real
-  browser against a throwaway mock API (no live shop existed yet); a full
-  run against production needs a working OTP login (waiting on the DLT
-  template).
-- **Needs real credentials from the owner** (placeholders in Secrets
-  Manager / `.env.example` until then): `MSG91_AUTH_KEY` (set in
-  `babuki/prod/msg91-auth-key`) and the OTP template — currently Home's
-  (`MSG91_OTP_TEMPLATE_ID` default in `scripts/deploy.sh`); real SMS starts when
-  the box is flipped with `scripts/set-app-mode.sh live` (which also switches
-  Razorpay to the LIVE keys — one switch for everything). LIVE
+  browser against a throwaway mock API, and later end to end against the real
+  API in test mode (a throwaway shop with a real Razorpay TEST subscription and
+  a signed webhook). See "Current state" above for what is still unproven live.
+- **Credentials** (all set): `MSG91_AUTH_KEY` (`babuki/prod/msg91-auth-key`) and
+  the OTP template — currently **Home's** (`MSG91_OTP_TEMPLATE_ID` default in
+  `scripts/deploy.sh`) until Babuki has its own DLT header + template; real SMS
+  and the LIVE Razorpay keys both follow `APP_MODE` (one switch). LIVE
   Razorpay (key secret, webhook secret, plan `plan_TdVzzDQoYIGSj0`) is
   already real. The **TEST** Razorpay set (`babuki/prod/razorpay-*-test`:
   key id, key secret, webhook secret, and a ₹500/mo plan created in
