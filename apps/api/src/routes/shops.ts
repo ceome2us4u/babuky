@@ -6,7 +6,8 @@ import { requireShopOwner } from "../lib/require-shop-owner.js";
 import { publicError } from "../lib/mode.js";
 import { createVendorSubscription, razorpayKeyId, validateVpa } from "../lib/razorpay.js";
 import { createItemImageUploadUrl } from "../lib/storage.js";
-import { SHOP_INDUSTRIES, SHOP_MODES } from "../lib/constants.js";
+import { SHOP_MODES } from "../lib/constants.js";
+import { industryFilter, normalizeIndustry } from "../lib/industries.js";
 import { LIMITS, NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
 
 export const shops = new Hono();
@@ -142,7 +143,7 @@ shops.post("/", async (c) => {
   const slug = str(body?.slug).toLowerCase();
   const name = str(body?.name);
   const ownerName = str(body?.ownerName);
-  const industry = body?.industry;
+  const industry = normalizeIndustry(body?.industry);
   const mode = body?.mode;
   const lat = typeof body?.lat === "number" ? body.lat : NaN;
   const lng = typeof body?.lng === "number" ? body.lng : NaN;
@@ -157,7 +158,7 @@ shops.post("/", async (c) => {
     textError("Owner name", ownerName, LIMITS.fullName) ??
     textError("Address", addressText, LIMITS.address);
   if (tooLong) return c.json({ error: tooLong }, 400);
-  if (!SHOP_INDUSTRIES.includes(industry)) return c.json({ error: "industry is invalid" }, 400);
+  if (!industry) return c.json({ error: "Pick the kind of business, or describe it in a few words" }, 400);
   if (!SHOP_MODES.includes(mode)) return c.json({ error: "mode is invalid" }, 400);
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
     return c.json({ error: "lat/lng are required and must be valid coordinates" }, 400);
@@ -268,16 +269,24 @@ shops.get("/nearby", async (c) => {
   const params: unknown[] = [lng, lat, radiusKm * 1000];
   let filter = "";
   if (industry && industry !== "All") {
-    if (!SHOP_INDUSTRIES.includes(industry as (typeof SHOP_INDUSTRIES)[number])) {
-      return c.json({ error: "industry is invalid" }, 400);
+    const f = industryFilter(industry);
+    if (!f) return c.json({ error: "industry is invalid" }, 400);
+    if ("eq" in f) {
+      params.push(f.eq);
+      filter += ` AND industry = $${params.length}`;
+    } else if ("any" in f) {
+      params.push(f.any);
+      filter += ` AND industry = ANY($${params.length}::text[])`;
+    } else {
+      params.push(f.notIn);
+      filter += ` AND NOT (industry = ANY($${params.length}::text[]))`;
     }
-    params.push(industry);
-    filter += ` AND industry = $${params.length}`;
   }
   if (q) {
     // Escape LIKE wildcards so a search for "50%_off" matches literally.
     params.push(`%${q.toLowerCase().replace(/[\\%_]/g, "\\$&")}%`);
-    filter += ` AND lower(name) LIKE $${params.length}`;
+    // Matches the shop's name or what kind of business it is ("kirana", "tailor").
+    filter += ` AND (lower(name) LIKE $${params.length} OR lower(industry) LIKE $${params.length})`;
   }
 
   const { rows } = await query(

@@ -200,6 +200,17 @@ could have been anything).
 - `contact_messages` (the Contact form's messages — stored, no longer
   dropped) and `admin_users` / `admin_sessions` / `admin_actions` (see
   "Admin console").
+- **Industries** (`shops.industry` is plain text; lists in
+  `apps/api/src/lib/industries.ts` ↔ `apps/web/src/lib/industries.ts`, keep in
+  sync): ~75 kinds of business in 11 groups (Food & Drink, Grocery & Daily
+  Needs, Fashion & Beauty, Home & Living, Electronics & Mobile, Health &
+  Wellness, Services, Vehicles, Farm & Pets, Kids/Gifts/Books, General &
+  Retail) plus **Other** — a vendor whose trade isn't listed types it in their
+  own words (2–40 chars, letters/digits/`& / , . ' ( ) + -`) and that text is
+  stored as the industry. The first version's four names (Bakery, Grocery,
+  Hotel, Retail) are kept verbatim so existing shops stay put. Buyers filter
+  `/shops/nearby?industry=` by group (`Other` = anything not on the list) or by
+  one listed industry, and `q` matches the shop name **or** its industry.
 
 ## API surface (`apps/api/src/routes/`, mounted on `api.babuki.com`)
 

@@ -12,6 +12,7 @@ import {
   ArrowRight,
   CircuitBoard,
   BadgeCheck,
+  Search,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,7 @@ export default function Home() {
           screen (content centred on the circuit pattern) instead of leaving a
           dead gap above the footer, and steps up in size on wide monitors. */}
       <section className="circuit-bg relative flex flex-1 flex-col justify-center overflow-hidden border-b border-gold/15">
-        <div className="mx-auto w-full max-w-6xl px-6 pb-8 pt-6 lg:py-8 2xl:max-w-7xl 2xl:py-12">
+        <div className="mx-auto w-full max-w-6xl px-6 pb-8 pt-6 lg:py-8 2xl:max-w-7xl 2xl:py-8">
           <div className="text-center">
             <div className="mx-auto mb-3 flex w-fit items-center gap-2 rounded-full border border-gold/40 bg-secondary px-3.5 py-1 text-xs font-semibold uppercase text-burgundy">
               <CircuitBoard className="size-3.5" /> Dual solution platform
@@ -47,10 +48,22 @@ export default function Home() {
               One platform for neighbourhood businesses going digital and founders building serious
               software.
             </p>
+            {/* For people who just want to find a shop: they shouldn't have to
+                guess that it lives under "Get Your Shop Online". */}
+            <div className="panel mx-auto mt-4 flex w-fit max-w-full flex-col items-center gap-2 rounded-2xl px-4 py-2.5 sm:flex-row sm:gap-4 sm:rounded-full sm:py-2 sm:pl-5 sm:pr-2 2xl:mt-6">
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <MapPin className="size-4 text-gold" /> Just looking for a shop near you?
+              </span>
+              <Button asChild size="sm" className="glow-gold w-full sm:w-auto sm:rounded-full">
+                <Link href="/shops#find">
+                  <Search className="size-4" /> Find shops near me
+                </Link>
+              </Button>
+            </div>
           </div>
 
           {/* Two offerings — true side-by-side split from md up */}
-          <div className="mt-6 grid grid-cols-1 items-stretch gap-5 md:grid-cols-2 2xl:mt-10 2xl:gap-8">
+          <div className="mt-6 grid grid-cols-1 items-stretch gap-5 md:grid-cols-2 2xl:mt-8 2xl:gap-8">
             <article className="panel flex flex-col rounded-lg p-5 md:p-6 2xl:p-8">
               <div className="flex items-center gap-3">
                 <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-secondary text-gold">
@@ -107,7 +120,7 @@ export default function Home() {
       </section>
 
       {/* Trust strip */}
-      <section className="mx-auto w-full max-w-6xl px-6 py-8 2xl:max-w-7xl 2xl:py-10">
+      <section className="mx-auto w-full max-w-6xl px-6 py-8 2xl:max-w-7xl 2xl:py-8">
         <div className="panel flex flex-col items-center gap-4 rounded-lg border-l-4 border-l-gold p-6 text-center sm:flex-row sm:text-left">
           <BrandBadge className="size-12 shrink-0" />
           <p className="text-xs text-muted-foreground md:text-sm 2xl:text-base">

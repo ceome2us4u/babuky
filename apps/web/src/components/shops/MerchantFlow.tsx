@@ -16,8 +16,8 @@ import { LIMITS, nameError, slugError, slugInput } from "@/lib/validate";
 import { ApiError, apiFetch, apiPost } from "@/lib/api";
 import { openRazorpayCheckout } from "@/lib/razorpay";
 import { siteConfig } from "@/config/site";
-
-export const INDUSTRIES = ["Bakery", "Grocery", "Hotel", "Retail"] as const;
+import { IndustryPicker } from "@/components/shops/IndustryPicker";
+import { customIndustryError, industryValue } from "@/lib/industries";
 
 // Default map centre (Bengaluru) until the vendor moves the pin.
 export const BASE: [number, number] = [12.9716, 77.5946];
@@ -35,7 +35,10 @@ export function MerchantFlow() {
 
   const [shopName, setShopName] = useState("");
   const [ownerName, setOwnerName] = useState("");
-  const [industry, setIndustry] = useState<string>("Bakery");
+  // "" until they pick; OTHER_INDUSTRY opens a box to describe the business.
+  const [industrySel, setIndustrySel] = useState("");
+  const [industryCustom, setIndustryCustom] = useState("");
+  const industry = industryValue(industrySel, industryCustom);
   const [mode, setMode] = useState<"display" | "order">("display");
 
   const [lat, setLat] = useState(BASE[0]);
@@ -284,23 +287,12 @@ export function MerchantFlow() {
               <Label>Verified contact</Label>
               <Input value={user.phone} readOnly disabled />
             </div>
-            <div className="space-y-2">
-              <Label>Industry</Label>
-              <div className="flex flex-wrap gap-2">
-                {INDUSTRIES.map((i) => (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    key={i}
-                    onClick={() => setIndustry(i)}
-                    className={industry === i ? "border-primary bg-accent text-primary" : "text-muted-foreground"}
-                  >
-                    {i}
-                  </Button>
-                ))}
-              </div>
-            </div>
+            <IndustryPicker
+              selected={industrySel}
+              onSelected={setIndustrySel}
+              custom={industryCustom}
+              onCustom={setIndustryCustom}
+            />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <ModeCard
@@ -327,7 +319,13 @@ export function MerchantFlow() {
               Back
             </Button>
             <Button
-              disabled={shopName.trim().length < 2 || ownerName.trim().length < 2 || !!nameError(ownerName)}
+              disabled={
+                shopName.trim().length < 2 ||
+                ownerName.trim().length < 2 ||
+                !!nameError(ownerName) ||
+                industry.length < 2 ||
+                !!customIndustryError(industryCustom)
+              }
               onClick={() => setStep(3)}
             >
               Continue
