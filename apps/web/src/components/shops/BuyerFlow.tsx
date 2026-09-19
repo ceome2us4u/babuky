@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ShopsMap, type ShopPin } from "@/components/shops/MapLazy";
-import { INDUSTRIES, BASE } from "@/components/shops/MerchantFlow";
+import { BASE } from "@/components/shops/MerchantFlow";
+import { SELECT_CLASS } from "@/components/shops/IndustryPicker";
+import { INDUSTRY_GROUPS, OTHER_GROUP } from "@/lib/industries";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { buildUpiLink, inr } from "@/lib/upi";
@@ -152,26 +154,27 @@ export function BuyerFlow() {
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search shops near you"
+            placeholder="Search by shop name or what it sells"
             aria-label="Search shops near you"
             maxLength={LIMITS.search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {["All", ...INDUSTRIES].map((i) => (
-            <button
-              key={i}
-              onClick={() => setFilter(i)}
-              className={`rounded-md border px-3 py-1.5 text-sm ${
-                filter === i ? "border-gold text-gold" : "border-border text-muted-foreground"
-              }`}
-            >
-              {i}
-            </button>
+        <select
+          className={`${SELECT_CLASS} md:w-56`}
+          aria-label="Kind of shop"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        >
+          <option value="All">All kinds of shops</option>
+          {INDUSTRY_GROUPS.map((g) => (
+            <option key={g.group} value={g.group}>
+              {g.group}
+            </option>
           ))}
-        </div>
+          <option value={OTHER_GROUP}>Other</option>
+        </select>
         <div className="flex gap-2">
           {[5, 10].map((r) => (
             <button
