@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Category } from "@/components/dashboard/CatalogManager";
+import { FieldError } from "@/components/ui/field-error";
 import { apiFetch, apiPost } from "@/lib/api";
+import { LIMITS, intInput, priceError, priceInput } from "@/lib/validate";
 import type { StoreItem } from "@/lib/store-api";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -79,6 +81,8 @@ export function ItemDialog({
     const rupees = Number(price);
     if (!name.trim()) return toast.error("Give the item a name");
     if (!price.trim() || !Number.isFinite(rupees) || rupees < 0) return toast.error("Enter a valid price");
+    const priceProblem = priceError(price);
+    if (priceProblem) return toast.error(priceProblem);
     const stockQuantity = trackStock ? Number(stock) : null;
     if (trackStock && (!stock.trim() || !Number.isInteger(stockQuantity) || (stockQuantity as number) < 0)) {
       return toast.error("Enter the stock as a whole number (0 or more)");
@@ -150,14 +154,14 @@ export function ItemDialog({
 
           <div className="space-y-2">
             <Label htmlFor="item-name">Name</Label>
-            <Input id="item-name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} placeholder="Chocolate truffle cake" />
+            <Input id="item-name" value={name} maxLength={LIMITS.itemName} onChange={(e) => setName(e.target.value)} placeholder="Item name" />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="item-brand">
                 Brand <span className="font-normal text-muted-foreground">(optional)</span>
               </Label>
-              <Input id="item-brand" value={brand} maxLength={80} onChange={(e) => setBrand(e.target.value)} />
+              <Input id="item-brand" value={brand} maxLength={LIMITS.brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand name" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="item-category">Category</Label>
@@ -175,12 +179,16 @@ export function ItemDialog({
             <Label htmlFor="item-desc">
               Description <span className="font-normal text-muted-foreground">(optional)</span>
             </Label>
-            <Textarea id="item-desc" rows={3} value={description} maxLength={500} onChange={(e) => setDescription(e.target.value)} />
+            <Textarea id="item-desc" rows={3} value={description} maxLength={LIMITS.description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description" />
+            <p className="text-right text-xs text-muted-foreground">
+              {description.length}/{LIMITS.description}
+            </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="item-price">Price (₹)</Label>
-              <Input id="item-price" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="120" />
+              <Input id="item-price" inputMode="decimal" autoComplete="off" value={price} onChange={(e) => setPrice(priceInput(e.target.value))} placeholder="Price in ₹" />
+              <FieldError message={priceError(price)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="item-stock">Units in stock</Label>
@@ -189,8 +197,9 @@ export function ItemDialog({
                 inputMode="numeric"
                 disabled={!trackStock}
                 value={trackStock ? stock : ""}
-                onChange={(e) => setStock(e.target.value.replace(/\D/g, ""))}
-                placeholder={trackStock ? "0" : "Not tracked"}
+                autoComplete="off"
+                onChange={(e) => setStock(intInput(e.target.value, 6))}
+                placeholder={trackStock ? "Units in stock" : "Not tracked"}
               />
             </div>
           </div>

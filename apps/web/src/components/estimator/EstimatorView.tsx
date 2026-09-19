@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FieldError } from "@/components/ui/field-error";
 import { useAuth } from "@/lib/auth";
+import { LIMITS, emailError, nameError } from "@/lib/validate";
 import { apiPost } from "@/lib/api";
 import { openRazorpayCheckout } from "@/lib/razorpay";
 
@@ -171,8 +173,9 @@ function RequestModal({
       toast.error("Name is required");
       return;
     }
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast.error("Enter a valid email address");
+    const problem = nameError(name) ?? emailError(email);
+    if (problem) {
+      toast.error(problem);
       return;
     }
     setBusy(true);
@@ -236,29 +239,52 @@ function RequestModal({
             </div>
             <div className="space-y-2">
               <Label>Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your full name" />
+              <Input
+                value={name}
+                maxLength={LIMITS.fullName}
+                autoComplete="name"
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your full name"
+              />
+              <FieldError message={nameError(name)} />
             </div>
             <div className="space-y-2">
               <Label>
                 Email <span className="font-normal text-muted-foreground">(optional)</span>
               </Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
+              <Input
+                type="email"
+                value={email}
+                maxLength={LIMITS.email}
+                autoComplete="email"
+                onChange={(e) => setEmail(e.target.value.replace(/\s/g, ""))}
+                placeholder="Your email address"
+              />
+              <FieldError message={emailError(email)} />
             </div>
             <div className="space-y-2">
               <Label>Project description</Label>
               <Textarea
                 rows={4}
                 value={desc}
+                maxLength={LIMITS.projectDescription}
                 onChange={(e) => setDesc(e.target.value)}
                 placeholder="What are you building, and what does success look like?"
               />
+              <p className="text-right text-xs text-muted-foreground">
+                {desc.length}/{LIMITS.projectDescription}
+              </p>
             </div>
             <div className="rounded-lg border border-gold/40 bg-secondary/40 p-4 text-xs leading-relaxed text-muted-foreground">
               Pay ₹100 refundable commitment deposit to book a 1-on-1 discovery call with our lead
               technical architect. The ₹100 fee is 100% credited back toward your project invoice upon
               contract signing.
             </div>
-            <Button className="w-full" onClick={() => void pay()} disabled={busy}>
+            <Button
+              className="w-full"
+              onClick={() => void pay()}
+              disabled={busy || !name.trim() || !!nameError(name) || !!emailError(email)}
+            >
               <Ticket className="size-4" /> {busy ? "Opening checkout…" : "Pay ₹100 & generate ticket"}
             </Button>
           </div>

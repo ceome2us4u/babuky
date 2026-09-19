@@ -11,6 +11,10 @@ geocode.get("/reverse", async (c) => {
   if (!lat || !lng) {
     return c.json({ error: "lat/lng are required" }, 400);
   }
+  // Only well-formed coordinates go to Nominatim.
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || Math.abs(Number(lat)) > 90 || Math.abs(Number(lng)) > 180) {
+    return c.json({ error: "lat/lng must be valid coordinates" }, 400);
+  }
 
   const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`;
 

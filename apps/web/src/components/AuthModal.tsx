@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { FieldError } from "@/components/ui/field-error";
 import { useAuth } from "@/lib/auth";
+import { LIMITS, PHONE_RE, emailError, intInput, nameError, phoneError, phoneInput } from "@/lib/validate";
 
 /**
  * Global SMS OTP auth: phone -> OTP (MSG91 via the API) -> profile.
@@ -61,8 +63,8 @@ export function AuthModal() {
   const errorMessage = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong");
 
   const send = async (resend = false) => {
-    if (!/^\d{10}$/.test(phone)) {
-      toast.error("Enter a valid 10-digit mobile number");
+    if (!PHONE_RE.test(phone)) {
+      toast.error(phoneError(phone) ?? "Enter your 10-digit mobile number");
       return;
     }
     if (!consent) {
@@ -110,16 +112,13 @@ export function AuthModal() {
       toast.error("Enter your full name");
       return;
     }
-    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      toast.error("Enter a valid email address");
-      return;
-    }
-    if (accountType === "business" && !businessName.trim()) {
-      toast.error("Enter your business or store name");
-      return;
-    }
-    if (!city.trim()) {
-      toast.error("Enter your city or locality");
+    const problem =
+      nameError(fullName) ??
+      emailError(normalizedEmail) ??
+      (accountType === "business" && businessName.trim().length < 2 ? "Enter your business or store name" : null) ??
+      (city.trim().length < 2 ? "Enter your city or locality" : null);
+    if (problem) {
+      toast.error(problem);
       return;
     }
     setBusy(true);
@@ -168,13 +167,23 @@ export function AuthModal() {
                 +91
               </span>
               <Input
+                type="tel"
                 inputMode="numeric"
+                autoComplete="tel-national"
                 maxLength={10}
-                placeholder="98765 43210"
+                placeholder="Your phone number"
+                aria-label="Your phone number"
+                aria-invalid={!!phoneError(phone)}
                 value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                onChange={(e) => setPhone(phoneInput(e.target.value))}
+                // Block non-digit keys outright; paste is cleaned by phoneInput.
+                onKeyDown={(e) => {
+                  if (e.key.length === 1 && !/\d/.test(e.key) && !e.ctrlKey && !e.metaKey) e.preventDefault();
+                  if (e.key === "Enter") void send();
+                }}
               />
             </div>
+            <FieldError message={phoneError(phone)} />
 
             <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-background/40 p-3 text-xs leading-relaxed text-muted-foreground">
               <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5" />
@@ -194,12 +203,19 @@ export function AuthModal() {
               Enter the 4-digit code sent to <span className="text-gold">+91 {phone}</span>
             </p>
             <Input
+              type="tel"
               inputMode="numeric"
+              autoComplete="one-time-code"
               maxLength={4}
-              placeholder="0000"
-              className="text-center text-2xl"
+              placeholder="Enter 4-digit OTP"
+              aria-label="4-digit OTP"
+              className="text-center text-xl tracking-widest placeholder:text-base placeholder:tracking-normal"
               value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              onChange={(e) => setOtp(intInput(e.target.value, 4))}
+              onKeyDown={(e) => {
+                if (e.key.length === 1 && !/\d/.test(e.key) && !e.ctrlKey && !e.metaKey) e.preventDefault();
+                if (e.key === "Enter") void verify();
+              }}
             />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <Button variant="link" className="h-auto p-0 text-gold" onClick={() => setStep("phone")}>
@@ -229,13 +245,15 @@ export function AuthModal() {
             </p>
             <div className="space-y-2">
               <Label htmlFor="profile-name">Full name</Label>
-              <Input id="profile-name" value={fullName} maxLength={100} onChange={(e) => setFullName(e.target.value)} placeholder="Your full name" />
+              <Input id="profile-name" autoComplete="name" value={fullName} maxLength={LIMITS.fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your full name" />
+              <FieldError message={nameError(fullName)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="profile-email">
                 Email address <span className="font-normal text-muted-foreground">(recommended)</span>
               </Label>
-              <Input id="profile-email" type="email" value={email} maxLength={255} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
+              <Input id="profile-email" type="email" autoComplete="email" value={email} maxLength={LIMITS.email} onChange={(e) => setEmail(e.target.value.replace(/\s/g, ""))} placeholder="Your email address" />
+              <FieldError message={emailError(email)} />
               <p className="text-xs text-muted-foreground">For invoices and important service updates.</p>
             </div>
             <div className="space-y-2">
@@ -252,12 +270,12 @@ export function AuthModal() {
             {accountType === "business" && (
               <div className="space-y-2">
                 <Label htmlFor="profile-business">Business / store name</Label>
-                <Input id="profile-business" value={businessName} maxLength={120} onChange={(e) => setBusinessName(e.target.value)} placeholder="Your business name" />
+                <Input id="profile-business" autoComplete="organization" value={businessName} maxLength={LIMITS.business} onChange={(e) => setBusinessName(e.target.value)} placeholder="Your business name" />
               </div>
             )}
             <div className="space-y-2">
               <Label htmlFor="profile-city">City / locality</Label>
-              <Input id="profile-city" value={city} maxLength={100} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Indiranagar, Bengaluru" />
+              <Input id="profile-city" autoComplete="address-level2" value={city} maxLength={LIMITS.city} onChange={(e) => setCity(e.target.value)} placeholder="Your city or locality" />
             </div>
             <Button className="w-full" onClick={() => void saveProfile()} disabled={busy}>
               {busy ? "Saving…" : "Complete profile"}

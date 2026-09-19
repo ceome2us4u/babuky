@@ -228,6 +228,34 @@ could have been anything).
   route that fixes the amount server-side. `/contracts/create-envelope`
   (Documenso) was never carried over.
 
+## Input validation
+
+Every field is validated twice: `apps/web/src/lib/validate.ts` gives instant
+feedback (sanitising as you type, inline `FieldError` messages, buttons
+disabled until valid), and `apps/api/src/lib/validation.ts` enforces the same
+rules again — the API never trusts the browser. **The two files must stay in
+sync.** The rules:
+
+- **Phone**: exactly 10 digits, first digit 6–9 (Indian mobile). The box is
+  `type="tel"`, blocks non-digit keys, and cleans pastes (`+91 98765 43210`
+  and `098765 43210` both become the 10-digit number).
+- **Person names** (profile, owner, estimator, contact): letters in any
+  script plus spaces and `. ' -` — no digits; max 100.
+- **Email**: format-checked, spaces stripped, max 255. **Subdomain slug**:
+  3–24 of `a-z0-9` with single inner hyphens (no leading/trailing hyphen — it
+  has to be a valid DNS label). **UPI ID**: `name@bank`. **Price**: max 2
+  decimals, ₹0–₹10,00,000, stored as integer paise. **Stock**: whole number
+  0–999,999 or untracked.
+- Text lengths are capped everywhere (business 120, city 100, item name 120,
+  brand 80, description 500, category 60, contact message and project
+  description 2000) and control characters are rejected server-side.
+- Item photo URLs must be objects in Babuki's own bucket under that shop's
+  prefix — an item can't point at an arbitrary external image.
+- Malformed ids in a path (non-UUID) are a clean 404, not a Postgres error.
+- **Placeholders describe the field ("Your phone number", "Your email
+  address"); they are never sample values** (no `98765 43210`, no
+  `you@company.com`).
+
 ## Infrastructure (`infra/terraform/`)
 
 One EC2 instance runs everything: Nginx (TLS termination, wildcard cert

@@ -103,6 +103,15 @@ PowerShell↔bash boundary:
 `npx tsc --noEmit && npm run build && npx next lint` (from `apps/web`)
 before opening or updating a PR. No test runner yet.
 
+## Every input is validated, on both sides — non-negotiable
+
+Any new field goes through `apps/web/src/lib/validate.ts` (sanitise as you
+type + inline `FieldError`) **and** `apps/api/src/lib/validation.ts` (the API
+never trusts the browser). Numeric fields must reject non-digits, not just
+warn; every text field needs a length cap; placeholders describe the field
+("Your phone number") and are never sample values. Rules and limits are in
+`docs/architecture.md` → "Input validation".
+
 ## Keep `docs/architecture.md` current — non-negotiable
 
 There's no tooling that regenerates it automatically; the mechanism is
