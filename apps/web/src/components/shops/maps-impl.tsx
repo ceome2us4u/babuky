@@ -78,38 +78,43 @@ export type ShopPin = {
   distanceKm: number;
 };
 
+/** Zoom that roughly fits the search circle; "anywhere" (null) shows the whole country. */
+const zoomFor = (radiusKm: number | null) =>
+  radiusKm === null ? 5 : radiusKm > 100 ? 7 : radiusKm > 50 ? 8 : radiusKm > 25 ? 9 : radiusKm > 10 ? 10 : radiusKm > 5 ? 11 : 12;
+
 export function ShopsMap({
   center,
   radiusKm,
+  centerLabel = "You are here",
   shops,
 }: {
   center: [number, number];
-  radiusKm: number;
+  /** null = no distance limit */
+  radiusKm: number | null;
+  centerLabel?: string;
   shops: ShopPin[];
 }) {
+  const zoom = zoomFor(radiusKm);
   return (
-    <MapContainer
-      center={center}
-      zoom={radiusKm > 5 ? 11 : 12}
-      scrollWheelZoom={false}
-      style={{ height: "100%", width: "100%" }}
-    >
+    <MapContainer center={center} zoom={zoom} scrollWheelZoom={false} style={{ height: "100%", width: "100%" }}>
       <TileLayer url={TILES} attribution={ATTRIB} />
-      <Recenter center={center} zoom={radiusKm > 5 ? 11 : 12} />
+      <Recenter center={center} zoom={zoom} />
       <Marker position={center} icon={buyerIcon}>
-        <Popup>You are here</Popup>
+        <Popup>{centerLabel}</Popup>
       </Marker>
-      <Circle
-        center={center}
-        radius={radiusKm * 1000}
-        pathOptions={{ color: "#D4AF37", fillColor: "#D4AF37", fillOpacity: 0.07, weight: 1 }}
-      />
+      {radiusKm !== null && (
+        <Circle
+          center={center}
+          radius={radiusKm * 1000}
+          pathOptions={{ color: "#D4AF37", fillColor: "#D4AF37", fillOpacity: 0.07, weight: 1 }}
+        />
+      )}
       {shops.map((s) => (
         <Marker key={s.id} position={[s.lat, s.lng]} icon={pinIcon}>
           <Popup>
             <strong>{s.name}</strong>
             <br />
-            {s.industry} · {s.distanceKm.toFixed(1)} km away
+            {s.industry} · {s.distanceKm < 10 ? s.distanceKm.toFixed(1) : Math.round(s.distanceKm)} km away
           </Popup>
         </Marker>
       ))}

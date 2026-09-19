@@ -8,6 +8,7 @@ import { createVendorSubscription, razorpayKeyId, validateVpa } from "../lib/raz
 import { createItemImageUploadUrl } from "../lib/storage.js";
 import { SHOP_MODES } from "../lib/constants.js";
 import { industryFilter, normalizeIndustry } from "../lib/industries.js";
+import { parseRadiusKm } from "../lib/search.js";
 import { LIMITS, NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
 
 export const shops = new Hono();
@@ -256,9 +257,9 @@ shops.get("/nearby", async (c) => {
 
   const lat = Number(c.req.query("lat"));
   const lng = Number(c.req.query("lng"));
-  const radiusParam = Number(c.req.query("radiusKm") ?? 5);
-  // A missing/garbage radius falls back to 5 km; never more than 10.
-  const radiusKm = Number.isFinite(radiusParam) && radiusParam > 0 ? Math.min(radiusParam, 10) : 5;
+  // A distance in km (1-200), or "any" for no distance limit — the finder isn't
+  // only for "near me": people search other towns or the whole country too.
+  const radiusKm = parseRadiusKm(c.req.query("radiusKm"));
   const industry = c.req.query("industry");
   const q = (c.req.query("q") ?? "").trim().slice(0, LIMITS.search);
 
@@ -266,8 +267,12 @@ shops.get("/nearby", async (c) => {
     return c.json({ error: "lat/lng are required and must be valid coordinates" }, 400);
   }
 
-  const params: unknown[] = [lng, lat, radiusKm * 1000];
+  const params: unknown[] = [lng, lat];
   let filter = "";
+  if (radiusKm !== null) {
+    params.push(radiusKm * 1000);
+    filter += ` AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $${params.length})`;
+  }
   if (industry && industry !== "All") {
     const f = industryFilter(industry);
     if (!f) return c.json({ error: "industry is invalid" }, 400);
@@ -285,8 +290,9 @@ shops.get("/nearby", async (c) => {
   if (q) {
     // Escape LIKE wildcards so a search for "50%_off" matches literally.
     params.push(`%${q.toLowerCase().replace(/[\\%_]/g, "\\$&")}%`);
-    // Matches the shop's name or what kind of business it is ("kirana", "tailor").
-    filter += ` AND (lower(name) LIKE $${params.length} OR lower(industry) LIKE $${params.length})`;
+    // Matches the shop's name, its kind of business ("kirana", "tailor") or where
+    // it is (a locality, city or pincode in its address).
+    filter += ` AND (lower(name) LIKE $${params.length} OR lower(industry) LIKE $${params.length} OR lower(address_text) LIKE $${params.length})`;
   }
 
   const { rows } = await query(
@@ -301,14 +307,14 @@ shops.get("/nearby", async (c) => {
             ST_Distance(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) / 1000 AS distance_km
      FROM shops
      WHERE status = 'active'
-       AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
        ${filter}
      ORDER BY distance_km ASC
      LIMIT 100`,
     params,
   );
 
-  return c.json({ shops: rows });
+  // LIMIT 100: when a wide search hits it, the UI tells people to narrow it down.
+  return c.json({ shops: rows, truncated: rows.length >= 100 });
 });
 
 shops.post("/:id/subscribe", async (c) => {

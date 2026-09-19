@@ -251,7 +251,12 @@ could have been anything).
   signed-in vendor's shops + lifecycle/subscription/UPI state),
   `/shops/slug-available`, `/shops/by-slug/:slug`
   (**public** — storefront lookup, only exposes UPI fields once verified),
-  `/shops/nearby` (PostGIS `ST_DWithin`/`ST_Distance`, gated to
+  `/shops/nearby` (the shop finder: PostGIS `ST_Distance` ordering, and
+  `ST_DWithin` when a distance is given — `radiusKm` 1–200 (`lib/search.ts`) or
+  `any` for **no distance limit**, i.e. anywhere in India, nearest first; the
+  centre is the buyer's location **or any place they searched for**; `q` also
+  matches the shop's address, so a locality/city/pincode works as a keyword;
+  100 results max, with `truncated: true` when a wide search hits it; gated to
   `LOCAL_BUYER` sessions; returns the vendor's phone for the Call/WhatsApp
   buttons — a deliberate, gated exposure — and `upi_id`/
   `verified_merchant_name` only once Razorpay-verified, for the Pay-via-QR
@@ -267,7 +272,11 @@ could have been anything).
   ownership check).
 - `/shops/:id/upload-url` — presigned S3 PUT URL for a vendor's item photo
   (browser uploads directly, no image bytes through this server).
-- `/geocode/reverse` — server-side Nominatim proxy.
+- `/geocode/reverse` — server-side Nominatim proxy. `/geocode/search?q=` —
+  forward geocoding for the finder ("Coimbatore", "Indiranagar Bengaluru",
+  "600017" → up to 5 places in India with coordinates): cached for an hour and
+  rate-limited (30/min per IP, 50/min overall) to stay inside Nominatim's usage
+  policy; the browser only ever talks to our API.
 - `/consultancy/leads` — creates the lead + a ₹100 Razorpay order.
 - `/webhooks/razorpay` — signature-verified, updates subscription/deposit
   status. **Shop lifecycle lives here**: `subscription.activated`/`.charged`
