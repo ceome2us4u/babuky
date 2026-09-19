@@ -15,7 +15,8 @@ import { PlaceSearch, type Place } from "@/components/shops/PlaceSearch";
 import { INDUSTRY_GROUPS, OTHER_GROUP } from "@/lib/industries";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { buildUpiLink, inr } from "@/lib/upi";
+import { buildUpiLink } from "@/lib/upi";
+import { storeUrl } from "@/lib/store-url";
 import { LIMITS } from "@/lib/validate";
 
 type NearbyShop = {
@@ -31,16 +32,6 @@ type NearbyShop = {
   lat: number;
   lng: number;
   distance_km: number;
-};
-
-type CatalogItem = {
-  id: string;
-  name: string;
-  brand: string;
-  price_paise: number;
-  is_available: boolean;
-  in_stock: boolean;
-  category_name: string | null;
 };
 
 // Amount-less UPI intent: the buyer's UPI app opens with the payee prefilled
@@ -70,8 +61,8 @@ export function BuyerFlow() {
   const [filter, setFilter] = useState<string>("All");
   const [shops, setShops] = useState<NearbyShop[]>([]);
   const [loading, setLoading] = useState(false);
-  const [active, setActive] = useState<{ shop: NearbyShop; kind: "catalog" | "qr" } | null>(null);
-  const [items, setItems] = useState<CatalogItem[] | null>(null);
+  // The shop whose pay-by-QR dialog is open.
+  const [active, setActive] = useState<NearbyShop | null>(null);
 
   const locate = () => {
     if (!navigator.geolocation) return;
@@ -118,24 +109,6 @@ export function BuyerFlow() {
     };
   }, [unlocked, user, center, radius, filter, query]);
 
-  // The catalog is public; load it when the Catalog dialog opens.
-  useEffect(() => {
-    if (active?.kind !== "catalog") return;
-    let stale = false;
-    setItems(null);
-    apiFetch<{ items: CatalogItem[] }>(`/shops/${active.shop.id}/items`)
-      .then((res) => !stale && setItems(res.items))
-      .catch(() => {
-        if (!stale) {
-          setItems([]);
-          toast.error("Couldn't load this catalog");
-        }
-      });
-    return () => {
-      stale = true;
-    };
-  }, [active]);
-
   const pickPlace = (p: Place) => {
     placeRef.current = p;
     setPlace(p);
@@ -165,17 +138,13 @@ export function BuyerFlow() {
 
   const pins: ShopPin[] = shops.map((s) => ({
     id: s.id,
+    slug: s.slug,
     name: s.name,
     industry: s.industry,
     lat: s.lat,
     lng: s.lng,
     distanceKm: s.distance_km,
   }));
-
-  const grouped = (items ?? []).reduce<Record<string, CatalogItem[]>>((acc, i) => {
-    (acc[i.category_name ?? "Other"] ??= []).push(i);
-    return acc;
-  }, {});
 
   return (
     <div className="space-y-6">
@@ -272,14 +241,24 @@ export function BuyerFlow() {
                   <MessageCircle className="size-4" /> WhatsApp
                 </a>
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setActive({ shop: s, kind: "catalog" })}>
-                <Store className="size-4" /> Catalog
+              {/* The store itself (slug.babuki.com) is where items are browsed, added to a
+                  basket and paid for — so this opens it, rather than a read-only list. */}
+              <Button asChild size="sm">
+                <a
+                  href={storeUrl(s.slug)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open ${s.name}'s store to browse and buy (opens in a new tab)`}
+                >
+                  <Store className="size-4" /> Open store
+                </a>
               </Button>
               <Button
                 size="sm"
+                variant="outline"
                 disabled={!s.upi_id}
                 title={s.upi_id ? undefined : "This shop hasn't enabled UPI payments yet"}
-                onClick={() => setActive({ shop: s, kind: "qr" })}
+                onClick={() => setActive(s)}
               >
                 <QrCode className="size-4" /> Pay via QR
               </Button>
@@ -304,49 +283,25 @@ export function BuyerFlow() {
       <Dialog open={!!active} onOpenChange={(o) => !o && setActive(null)}>
         <DialogContent className="panel max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {active?.kind === "qr" ? "Pay via UPI QR" : "Catalog"} — {active?.shop.name}
-            </DialogTitle>
+            <DialogTitle>Pay via UPI QR — {active?.name}</DialogTitle>
           </DialogHeader>
-          {active?.kind === "qr" ? (
+          {active && (
             <div className="space-y-3 text-center">
               <div className="mx-auto grid w-fit place-items-center rounded-lg border border-gold/40 bg-white p-3">
-                <QRCodeSVG value={upiLink(active.shop)} size={176} level="M" />
+                <QRCodeSVG value={upiLink(active)} size={176} level="M" />
               </div>
               <p className="text-sm font-medium">
-                {active.shop.verified_merchant_name}
-                <span className="block text-xs font-normal text-muted-foreground">{active.shop.upi_id}</span>
+                {active.verified_merchant_name}
+                <span className="block text-xs font-normal text-muted-foreground">{active.upi_id}</span>
               </p>
               <p className="text-xs text-muted-foreground">
-                Payment goes directly from you to the merchant&apos;s UPI account. Babuki is an
-                intermediary and never holds your money.
+                This pays the shop directly without picking items. To order specific items, use{" "}
+                <a className="font-medium text-gold hover:underline" href={storeUrl(active.slug)} target="_blank" rel="noopener noreferrer">
+                  Open store
+                </a>
+                . Payment goes directly from you to the merchant&apos;s UPI account; Babuki is an intermediary and never
+                holds your money.
               </p>
-            </div>
-          ) : items === null ? (
-            <p className="text-sm text-muted-foreground">Loading catalog…</p>
-          ) : items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">This shop hasn&apos;t listed any items yet.</p>
-          ) : (
-            <div className="space-y-4 text-sm">
-              {Object.entries(grouped).map(([category, list]) => (
-                <section key={category}>
-                  <h3 className="mb-2 text-xs font-semibold uppercase text-gold">{category}</h3>
-                  <ul className="space-y-2">
-                    {list.map((i) => (
-                      <li key={i.id} className="flex justify-between gap-3 border-b border-border/60 pb-2">
-                        <span className={i.in_stock && i.is_available ? "" : "text-muted-foreground"}>
-                          {i.name}
-                          {i.brand && <span className="text-xs text-muted-foreground"> · {i.brand}</span>}
-                          {!(i.in_stock && i.is_available) && (
-                            <span className="ml-2 text-xs font-medium text-destructive">Out of stock</span>
-                          )}
-                        </span>
-                        <span className="shrink-0 text-gold">{inr(i.price_paise)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
             </div>
           )}
         </DialogContent>

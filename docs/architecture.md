@@ -275,7 +275,11 @@ could have been anything).
   `LOCAL_BUYER` sessions; returns the vendor's phone for the Call/WhatsApp
   buttons — a deliberate, gated exposure — and `upi_id`/
   `verified_merchant_name` only once Razorpay-verified, for the Pay-via-QR
-  button), `/shops/:id/subscribe` (Razorpay Subscription
+  button; the finder's **Open store** button (and the map-pin popup link) goes
+  to the shop's own store page `slug.babuki.com` — where items are browsed,
+  added to a basket and paid for by UPI; the finder itself has no catalog
+  view, a read-only list there left buyers unable to order),
+  `/shops/:id/subscribe` (Razorpay Subscription
   against the locked plan), `/shops/:id/upi/{validate,confirm}` (vendor-only
   — see the UPI checkout section above).
 - `PATCH /shops/:id` — vendor-only; switches Display Only ↔ Direct Order.
