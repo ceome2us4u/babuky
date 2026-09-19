@@ -103,6 +103,19 @@ PowerShell↔bash boundary:
 `npx tsc --noEmit && npm run build && npx next lint` (from `apps/web`)
 before opening or updating a PR. No test runner yet.
 
+## Modes and config are env switches, never code changes — non-negotiable
+
+TEST vs LIVE is **one** switch, `APP_MODE=test|live` in the API's env on the
+box (Home's convention) — it drives OTP, Razorpay, and anything else that
+differs between test and live. Do not add per-feature flags (`OTP_TEST_MODE`,
+`RAZORPAY_MODE`, …), and never make flipping a mode a code edit, a PR, or a
+redeploy: `bash scripts/set-app-mode.sh test|live <host>`. Mode-specific
+credentials sit side by side as `<NAME>_LIVE` / `<NAME>_TEST` and are picked
+by `apps/api/src/lib/mode.ts` `pick()`, which fails closed. Anything the
+browser needs that differs by mode comes from the API, not a build-time
+`NEXT_PUBLIC_*`. See `docs/architecture.md` → "Modes: TEST / LIVE". Before
+inventing a mechanism for something like this, check how Home already does it.
+
 ## Every input is validated, on both sides — non-negotiable
 
 Any new field goes through `apps/web/src/lib/validate.ts` (sanitise as you

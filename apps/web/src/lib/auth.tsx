@@ -69,7 +69,8 @@ type AuthContextValue = {
   /** Tags the signed-in user with a lead source (the API gates endpoints on it). */
   ensureLeadSource: (source: LeadSource) => Promise<void>;
   closeModal: () => void;
-  sendOtp: (phone: string, consent: boolean) => Promise<void>;
+  /** In the API's APP_MODE=test no SMS is sent and `devOtpHint` is the code to enter. */
+  sendOtp: (phone: string, consent: boolean) => Promise<{ devOtpHint?: string }>;
   /** Verifies the OTP; resolves to whether the user still has to fill in a profile. */
   verifyOtp: (phone: string, otp: string, consent: boolean) => Promise<{ needsProfile: boolean }>;
   completeProfile: (profile: UserProfile) => Promise<void>;
@@ -150,7 +151,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sendOtp = useCallback(
     async (phone: string, consent: boolean) => {
-      await apiPost("/auth/otp/send", { phone, leadSource: pendingSource, consent });
+      const res = await apiPost<{ devOtpHint?: string }>("/auth/otp/send", {
+        phone,
+        leadSource: pendingSource,
+        consent,
+      });
+      return { devOtpHint: res.devOtpHint };
     },
     [pendingSource],
   );

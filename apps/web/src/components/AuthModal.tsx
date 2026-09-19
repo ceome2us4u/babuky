@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/field-error";
 import { useAuth } from "@/lib/auth";
-import { LIMITS, PHONE_RE, emailError, intInput, nameError, phoneError, phoneInput } from "@/lib/validate";
+import { LIMITS, OTP_LENGTH, PHONE_RE, emailError, intInput, nameError, phoneError, phoneInput } from "@/lib/validate";
 
 /**
  * Global SMS OTP auth: phone -> OTP (MSG91 via the API) -> profile.
@@ -26,6 +26,7 @@ export function AuthModal() {
   const [otp, setOtp] = useState("");
   const [consent, setConsent] = useState(false);
   const [timer, setTimer] = useState(0);
+  const [testCode, setTestCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -39,6 +40,7 @@ export function AuthModal() {
     if (!modalOpen) {
       setStep("phone");
       setOtp("");
+      setTestCode(null);
       setTimer(0);
       setBusy(false);
       setFullName("");
@@ -73,10 +75,17 @@ export function AuthModal() {
     }
     setBusy(true);
     try {
-      await sendOtp(phone, consent);
+      const sent = await sendOtp(phone, consent);
+      setTestCode(sent.devOtpHint ?? null);
       setStep("otp");
       setTimer(30);
-      toast.success(resend ? "OTP resent" : `OTP sent to +91 ${phone}`);
+      toast.success(
+        sent.devOtpHint
+          ? "Test mode — no SMS is sent yet"
+          : resend
+            ? "OTP resent"
+            : `OTP sent to +91 ${phone}`,
+      );
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -85,8 +94,8 @@ export function AuthModal() {
   };
 
   const verify = async () => {
-    if (!/^\d{4}$/.test(otp)) {
-      toast.error("Enter the 4-digit OTP");
+    if (otp.length !== OTP_LENGTH) {
+      toast.error(`Enter the ${OTP_LENGTH}-digit OTP`);
       return;
     }
     setBusy(true);
@@ -199,19 +208,39 @@ export function AuthModal() {
           </div>
         ) : step === "otp" ? (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Enter the 4-digit code sent to <span className="text-gold">+91 {phone}</span>
-            </p>
+            {testCode ? (
+              // API test mode: no SMS goes out, so say so and offer the code
+              // rather than leave people waiting for a text that never comes.
+              <div className="rounded-md border border-gold/40 bg-secondary/50 p-3 text-sm">
+                <p className="font-semibold text-burgundy">Test mode — no SMS is sent yet</p>
+                <p className="mt-1 text-muted-foreground">
+                  Real text messages start once our SMS sender is approved. For now, use the code{" "}
+                  <span className="font-bold tracking-widest text-foreground">{testCode}</span> with any number.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => setOtp(intInput(testCode, OTP_LENGTH))}
+                >
+                  Fill in {testCode}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Enter the {OTP_LENGTH}-digit code sent to <span className="text-gold">+91 {phone}</span>
+              </p>
+            )}
             <Input
               type="tel"
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={4}
-              placeholder="Enter 4-digit OTP"
-              aria-label="4-digit OTP"
+              maxLength={OTP_LENGTH}
+              placeholder={`Enter ${OTP_LENGTH}-digit OTP`}
+              aria-label={`${OTP_LENGTH}-digit OTP`}
               className="text-center text-xl tracking-widest placeholder:text-base placeholder:tracking-normal"
               value={otp}
-              onChange={(e) => setOtp(intInput(e.target.value, 4))}
+              onChange={(e) => setOtp(intInput(e.target.value, OTP_LENGTH))}
               onKeyDown={(e) => {
                 if (e.key.length === 1 && !/\d/.test(e.key) && !e.ctrlKey && !e.metaKey) e.preventDefault();
                 if (e.key === "Enter") void verify();

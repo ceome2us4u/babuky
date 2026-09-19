@@ -17,9 +17,18 @@ Me2Us4U (OPC) Private Limited:
   catalog modes — Display Only (buyer calls/WhatsApps) or Direct Order
   (buyer pays the vendor's own static UPI QR — Babuki never touches that
   money, Section 79 IT Act intermediary posture).
-- **Track 2 — software consultancy estimator**: an interactive scope
-  cart, ₹100 refundable commitment deposit to book a discovery call,
-  credited against the first invoice on contract signing.
+- **Track 2 — software consultancy estimator** ("Build Custom Software" in
+  the nav, matching the home-page card): an interactive scope estimator,
+  ₹100 refundable commitment deposit to book a discovery call, credited
+  against the first invoice on contract signing. **Written for shop owners
+  who have never bought software**: the main wording is plain ("A safe home
+  on the internet for my website") with the technical name as subtext
+  ("Technical name: cloud server setup (AWS/EC2)"); it starts from goals
+  ("I need a website", "I want to sell online") rather than a catalog; and it
+  nudges for what people forget ("you'll probably also need: web address,
+  safety padlock"). Wording and prices live in
+  `components/estimator/catalog.ts`; item `id`/`low`/`high` are what the API
+  stores, so keep ids stable.
 
 ## Repo layout — two services, not one
 
@@ -189,8 +198,10 @@ could have been anything).
 ## API surface (`apps/api/src/routes/`, mounted on `api.babuki.com`)
 
 - `/auth/otp/{send,verify}`, `/auth/{profile,me,logout}` — MSG91-backed;
-  OTPs are 4 digits (`otp_length=4` is sent explicitly — MSG91 defaults to
-  6 — to match the mock's 4-digit screen).
+  OTPs are 5 digits (`OTP_LENGTH` in `lib/msg91.ts`, mirrored by
+  `OTP_LENGTH` in the web's `lib/validate.ts`; `otp_length` is sent to MSG91
+  explicitly because its default is 6). In `APP_MODE=test` no SMS is sent —
+  see "Modes: TEST / LIVE".
   `POST /auth/lead-source` adds a lead-source tag to an already-signed-in
   user (lead sources gate the merchant/buyer/consultancy endpoints, and are
   otherwise only recorded at OTP verify — without this a buyer could never
@@ -227,6 +238,50 @@ could have been anything).
   every Razorpay order/subscription is now created by an authenticated
   route that fixes the amount server-side. `/contracts/create-envelope`
   (Documenso) was never carried over.
+
+## Modes: TEST / LIVE — one switch for everything
+
+`APP_MODE=test|live` in the API's env on the box (`/opt/babuki/api/.env`),
+same convention as Home's `APP_MODE` (`packages/integrations/src/mode.ts`).
+**Only exactly `test` is test; unset or anything else is LIVE.** It is
+**never** flipped by editing code — that's a rule (see CLAUDE.md):
+
+```bash
+bash scripts/set-app-mode.sh test 13.204.187.141   # or: live
+```
+
+That edits `APP_MODE`, restarts the API and prints `/health`, which reports
+`{"mode":"test"|"live"}` so the running state is checkable from outside.
+`scripts/deploy.sh` **preserves** the box's current mode (an explicit
+`APP_MODE=…` on the deploy command overrides; first-ever deploy = live), so a
+normal deploy never flips it. One switch drives *everything* mode-dependent:
+
+| | `test` | `live` |
+|---|---|---|
+| **OTP** | no SMS is sent; the fixed code `12345` signs in **any** phone number and is returned to the UI as `devOtpHint` (the login screen shows it) | real MSG91 SMS |
+| **Razorpay** | `RAZORPAY_*_TEST` credentials | `RAZORPAY_*_LIVE` credentials |
+
+Razorpay follows Home's pick-by-suffix pattern: both sets sit side by side in
+the env (`RAZORPAY_KEY_ID`, `_KEY_SECRET`, `_WEBHOOK_SECRET`,
+`_VENDOR_PLAN_ID`, each `_LIVE` / `_TEST`), and `lib/mode.ts` `pick()`
+**fails closed** — a missing (or still-`not-configured-yet`) value for the
+active mode is an error, so test mode can never quietly use live keys and move
+real money. LIVE values: key id + plan id are plain values in `deploy.sh`,
+secrets from `babuki/prod/razorpay-{key-secret,webhook-secret}`. TEST values
+all come from Secrets Manager (`babuki/prod/razorpay-{key-id,key-secret,
+webhook-secret,vendor-plan-id}-test`, placeholders in `secrets.tf`), so
+configuring them never touches code. The webhook verifies with the active
+mode's secret, so an event signed for the other mode is rejected.
+
+Because the frontend can't hold a build-time key that a runtime flip would
+leave stale, **the API returns the active mode's publishable `keyId` with
+every payment** (`/shops/:id/subscribe`, `/consultancy/leads`); the web opens
+Checkout with that, and there is no `NEXT_PUBLIC_RAZORPAY_KEY_ID` any more.
+
+**Test mode is dangerous by design** — anyone can sign in as anyone — so it is
+for the period before Babuki has a DLT-approved SMS sender. Flip to `live`
+before real users rely on their accounts; the API logs a loud warning at
+startup while it is on.
 
 ## Input validation
 
@@ -349,8 +404,10 @@ Terraform would then manage.
   run against production needs a working OTP login (waiting on the DLT
   template).
 - **Needs real credentials from the owner** (placeholders in Secrets
-  Manager / `.env.example` until then): `MSG91_AUTH_KEY`,
-  `RAZORPAY_KEY_SECRET` (copyable from Home's account-wide values),
-  `RAZORPAY_WEBHOOK_SECRET` (needs Babuki's own webhook registered in the
-  Razorpay dashboard first — see the isolation section above).
-  `RAZORPAY_VENDOR_PLAN_ID` (`plan_TdVzzDQoYIGSj0`) is already real.
+  Manager / `.env.example` until then): `MSG91_AUTH_KEY` + a DLT-approved
+  template/sender (until then the box runs in `APP_MODE=test`). LIVE
+  Razorpay (key secret, webhook secret, plan `plan_TdVzzDQoYIGSj0`) is
+  already real. The **TEST** Razorpay set (`babuki/prod/razorpay-*-test`:
+  key id, key secret, webhook secret, and a ₹500/mo plan created in
+  Razorpay's Test mode) is empty — test-mode payments fail closed until it's
+  filled in.

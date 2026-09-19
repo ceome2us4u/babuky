@@ -82,3 +82,35 @@ resource "aws_secretsmanager_secret_version" "razorpay_webhook_secret" {
     ignore_changes = [secret_string]
   }
 }
+
+# --- Razorpay TEST-mode credentials --------------------------------------
+# APP_MODE=test (scripts/set-app-mode.sh) makes the API use these instead of
+# the LIVE ones above — one switch for everything, same convention as the Home
+# repo. Placeholders until you paste the real values from Razorpay's TEST-mode
+# dashboard (Settings -> API Keys / Webhooks, and a ₹500/mo plan created while
+# in Test mode). Until then test-mode payments fail closed ("not configured");
+# they never fall back to the LIVE keys. Set values in the Secrets Manager
+# console — no code change or redeploy of the secrets themselves is needed.
+locals {
+  razorpay_test_secrets = {
+    "razorpay-key-id-test"         = "Razorpay TEST key id (rzp_test_...)"
+    "razorpay-key-secret-test"     = "Razorpay TEST key secret"
+    "razorpay-webhook-secret-test" = "Razorpay TEST webhook signing secret"
+    "razorpay-vendor-plan-id-test" = "Razorpay TEST-mode INR 500/mo vendor plan id"
+  }
+}
+
+resource "aws_secretsmanager_secret" "razorpay_test" {
+  for_each    = local.razorpay_test_secrets
+  name        = "babuki/prod/${each.key}"
+  description = each.value
+}
+
+resource "aws_secretsmanager_secret_version" "razorpay_test" {
+  for_each      = local.razorpay_test_secrets
+  secret_id     = aws_secretsmanager_secret.razorpay_test[each.key].id
+  secret_string = "not-configured-yet"
+  lifecycle {
+    ignore_changes = [secret_string] # never clobber a real value set later
+  }
+}

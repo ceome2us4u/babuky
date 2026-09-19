@@ -1,7 +1,9 @@
 "use client";
 
 // Thin wrapper over Razorpay Checkout.js. Only the publishable key id is used
-// here (NEXT_PUBLIC_RAZORPAY_KEY_ID, inlined at build); the secret never
+// here, and it comes FROM THE API with each payment (`keyId` in the
+// subscribe / lead responses) — the API picks the LIVE or TEST key by
+// APP_MODE, so flipping the mode needs no frontend rebuild. The secret never
 // leaves apps/api. Babuki uses Razorpay for exactly three things: vendor
 // subscriptions, the ₹100 consultancy deposit, and UPI VPA validation
 // (server-side). Buyer-to-vendor payments are peer-to-peer UPI and never
@@ -44,6 +46,8 @@ function loadCheckoutScript(): Promise<void> {
 }
 
 export async function openRazorpayCheckout(opts: {
+  /** Publishable key id for the API's active mode (returned with the order/subscription). */
+  keyId: string;
   orderId?: string;
   subscriptionId?: string;
   description: string;
@@ -51,12 +55,11 @@ export async function openRazorpayCheckout(opts: {
   onSuccess: () => void;
   onDismiss?: () => void;
 }) {
-  const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  if (!key) throw new Error("Payments aren't configured yet");
+  if (!opts.keyId) throw new Error("Payments aren't configured yet");
 
   await loadCheckoutScript();
   const checkout = new window.Razorpay!({
-    key,
+    key: opts.keyId,
     name: "Babuki",
     description: opts.description,
     order_id: opts.orderId,

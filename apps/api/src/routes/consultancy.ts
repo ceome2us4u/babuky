@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { query } from "../lib/db.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
-import { createOrder } from "../lib/razorpay.js";
+import { createOrder, razorpayKeyId } from "../lib/razorpay.js";
 import { EMAIL_RE, LIMITS, NAME_RE, isIntInRange, str, textError } from "../lib/validation.js";
 
 export const consultancy = new Hono();
@@ -70,7 +70,9 @@ consultancy.post("/leads", async (c) => {
       [phone, ticketRef, JSON.stringify(selectedItems), budgetLow, budgetHigh, name, email, description, order.id],
     );
 
-    return c.json({ ticketRef, order }, 201);
+    // keyId: the browser opens Checkout with the key for the ACTIVE mode, so a
+    // TEST/LIVE flip needs no frontend rebuild.
+    return c.json({ ticketRef, order, keyId: razorpayKeyId() }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create consultancy lead";
     return c.json({ error: message }, 503);
