@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { MapContainer, Marker, Popup, TileLayer, Circle, useMap, useMapEvents } from "react-leaflet";
 import { useEffect } from "react";
+import { storeUrl } from "@/lib/store-url";
 
 const TILES = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const ATTRIB = "&copy; OpenStreetMap contributors";
@@ -71,6 +72,7 @@ export function LocationPicker({
 
 export type ShopPin = {
   id: string;
+  slug: string;
   name: string;
   industry: string;
   lat: number;
@@ -115,6 +117,10 @@ export function ShopsMap({
             <strong>{s.name}</strong>
             <br />
             {s.industry} · {s.distanceKm < 10 ? s.distanceKm.toFixed(1) : Math.round(s.distanceKm)} km away
+            <br />
+            <a href={storeUrl(s.slug)} target="_blank" rel="noopener noreferrer">
+              Open store
+            </a>
           </Popup>
         </Marker>
       ))}
