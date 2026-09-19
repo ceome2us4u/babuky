@@ -1,5 +1,5 @@
-// UPI payment intent. Built only from values Razorpay verified for the
-// vendor's VPA (see apps/api /shops/:id/upi/confirm); the money moves buyer ->
+// UPI payment intent. Built only from the UPI ID and name the shop owner
+// confirmed (see apps/api /shops/:id/upi/confirm); the money moves buyer ->
 // vendor directly over UPI and never touches Babuki or Razorpay.
 export function buildUpiLink(opts: {
   vpa: string;

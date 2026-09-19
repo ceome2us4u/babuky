@@ -26,7 +26,7 @@ type NearbyShop = {
   industry: string;
   mode: "display" | "order";
   phone: string; // +91XXXXXXXXXX
-  // Only present once Razorpay has verified the vendor's UPI ID.
+  // Only present once the shop owner has confirmed their UPI ID.
   upi_id: string | null;
   verified_merchant_name: string | null;
   lat: number;

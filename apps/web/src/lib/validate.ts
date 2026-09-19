@@ -16,6 +16,7 @@ export const LIMITS = {
   message: 2000,
   search: 60,
   upi: 100,
+  upiName: 60,
   stock: 999_999,
   maxPriceRupees: 1_000_000,
 } as const;
@@ -30,6 +31,8 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // Same pattern the API uses for UPI VPAs (name@bank).
 export const UPI_RE = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9]{2,64}$/;
+// The name a shop owner's UPI app shows for their UPI ID (same rule as the API's UPI_NAME_RE).
+export const UPI_NAME_RE = /^[\p{L}\p{N}][\p{L}\p{M}\p{N} .&'()-]{1,59}$/u;
 // Person names: letters (any script), spaces, and . ' - only — no digits.
 export const NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M}\s.'’-]{1,99}$/u;
 
@@ -106,6 +109,18 @@ export function slugError(slug: string): string | null {
 
 export function upiInput(raw: string): string {
   return raw.replace(/\s/g, "").slice(0, LIMITS.upi);
+}
+
+/** Keeps only characters a UPI name can contain. */
+export function upiNameInput(raw: string): string {
+  return raw.replace(/[^\p{L}\p{M}\p{N} .&'()-]/gu, "").slice(0, LIMITS.upiName);
+}
+
+export function upiNameError(v: string): string | null {
+  const s = v.trim();
+  if (!s) return null;
+  if (s.length < 2) return "Type the whole name your UPI app showed";
+  return UPI_NAME_RE.test(s) ? null : "Use letters, numbers and . & ' ( ) - only";
 }
 
 export function upiError(v: string): string | null {

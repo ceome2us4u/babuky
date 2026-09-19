@@ -69,7 +69,7 @@ babuky/
                              by category, re-validated against the live catalog
       src/lib/store-api.ts  server-side fetch of the public storefront data
                              (loopback via API_INTERNAL_URL set in PM2)
-      src/lib/upi.ts        UPI intent builder (Razorpay-verified values only)
+      src/lib/upi.ts        UPI intent builder (owner-confirmed values only)
       src/lib/api.ts        apiUrl()/apiFetch() -> NEXT_PUBLIC_API_URL
                              (api.babuki.com), credentials included so the
                              session cookie rides along. No server logic, no
@@ -144,20 +144,31 @@ database is exactly what's being avoided:
   Babuki needed its own webhook registered against
   `https://api.babuki.com/webhooks/razorpay` before that one could be set.
 
-## UPI checkout — VPA verification, not static QR uploads
+## UPI checkout — owner-confirmed UPI ID, not static QR uploads
 
-Direct Order shops no longer upload a static QR image. Instead: the vendor
-enters their UPI VPA (`shopname@upi`), `POST /shops/:id/upi/validate` calls
-Razorpay's VPA validation endpoint (`validateVpa` in
-`apps/api/src/lib/razorpay.ts`, not wrapped by the `razorpay` npm SDK — a
-direct REST call with the same Basic Auth every other Razorpay call here
-uses; **unverified against a live account as of 2026-09-18**, confirm the
-response shape once real credentials exist) and returns the registered
-account name *without persisting anything* — a pure preview so the UI can
-show "is this your business? [Confirm]". Only `POST /shops/:id/upi/confirm`
-re-validates and persists `upi_id` / `verified_merchant_name` /
-`is_upi_verified` — `verified_merchant_name` is only ever written from
-Razorpay's own response, never trusted from client input.
+Direct Order shops no longer upload a static QR image. Instead the **owner
+confirms their own UPI ID**: they enter it, scan a test QR (built by the page,
+`upi://pay?pa=…`) with their own UPI app, read the name the app shows, type
+that name, and tick "this is my own business's UPI ID and the name is exactly
+what my app showed". `POST /shops/:id/upi/confirm {upiId, name, confirmed:true}`
+(owner-only) checks the UPI ID's format (`name@bank`), the name (2–60 chars,
+letters incl. Indian-script combining marks, digits, `. & ' ( ) -`) and the tick,
+and stores them. The columns keep their old names — `is_upi_verified` now means
+"confirmed by the owner" and `verified_merchant_name` is "the name their UPI app
+showed" — so **it is self-reported, and the UI says so** ("You confirmed this UPI
+ID yourself"); the cart also tells buyers "your UPI app shows who you're paying
+before you confirm — check it matches". The admin console labels it "confirmed by
+the owner".
+
+**Why not Razorpay verification (learned 2026-09-19):** Razorpay's
+`POST /v1/payments/validate/vpa` belongs to the UPI Collect flow, which NPCI
+switched off on 28 Feb 2026 — it answers "The requested URL was not found on the
+server" on LIVE and sandbox keys alike (it was never verified against a live
+account before that). The replacement, fund-account validation
+(`POST /v1/fund_accounts/validations`), needs RazorpayX and answers "Access to
+requested resource not available" on this account (and would charge per check).
+If RazorpayX is enabled later, real verification can be added back in front of
+`/upi/confirm`; the `validateVpa` call was removed from `lib/razorpay.ts`.
 
 At checkout, the storefront's cart dialog builds a UPI deep
 link entirely client-side (`src/lib/upi.ts`) —
@@ -170,15 +181,14 @@ buyer actually paid, so the dialog says so and offers a WhatsApp handoff of
 the order (grouped by category) for the buyer to send the vendor.
 `GET /shops/by-slug/:slug` (public) is what the page reads from — it
 only ever returns `upi_id`/`verified_merchant_name` once
-`is_upi_verified` is true, so a QR can't be built from a VPA Razorpay
-hasn't confirmed; a Direct Order shop without a verified VPA degrades to
+`is_upi_verified` is true, so a QR can't be built from a UPI ID the owner
+hasn't confirmed; a Direct Order shop without a confirmed UPI ID degrades to
 the WhatsApp/call handoff. It also returns the vendor's `contact_phone` (a
 public storefront lists how to reach the vendor; publishing a shop is the
 opt-in).
 
-**Razorpay scope stays exactly three things** — vendor subscription billing
-(₹500/mo), consultancy deposits (₹100), and VPA validation during
-onboarding. Buyer-to-vendor payment for actual storefront purchases is
+**Razorpay scope is now two things** — vendor subscription billing
+(₹500/mo) and consultancy deposits (₹100); it no longer validates UPI IDs. Buyer-to-vendor payment for actual storefront purchases is
 peer-to-peer UPI (NPCI), entirely outside Razorpay and outside Babuki —
 consistent with the existing Section 79 "Babuki never touches buyer/vendor
 money" posture, now also true for Direct Order mode specifically (it
@@ -292,7 +302,7 @@ could have been anything).
   100 results max, with `truncated: true` when a wide search hits it; gated to
   `LOCAL_BUYER` sessions; returns the vendor's phone for the Call/WhatsApp
   buttons — a deliberate, gated exposure — and `upi_id`/
-  `verified_merchant_name` only once Razorpay-verified, for the Pay-via-QR
+  `verified_merchant_name` only once the owner has confirmed them, for the Pay-via-QR
   button; the finder's **Open store** button (and the map-pin popup link) goes
   to the shop's own store page `slug.babuki.com` — where items are browsed,
   added to a basket and paid for by UPI; the finder itself has no catalog
@@ -347,7 +357,6 @@ normal deploy never flips it. One switch drives *everything* mode-dependent:
 |---|---|---|
 | **OTP** (signup + forgot-password only) | no SMS is sent; the fixed code `12345` passes for **any** phone number and is returned to the UI as `devOtpHint` (the code screen shows it) | real MSG91 SMS |
 | **Razorpay** | `RAZORPAY_*_TEST` credentials | `RAZORPAY_*_LIVE` credentials |
-| **UPI ID (VPA) check** | **simulated** — Razorpay's sandbox doesn't offer it (with test keys the documented call answers "URL not found" while other endpoints work); `failure@razorpay` fails, any other well-formed VPA passes as `TEST ACCOUNT (name)` | real `POST /v1/payments/validate/vpa` |
 
 Razorpay follows Home's pick-by-suffix pattern: both sets sit side by side in
 the env (`RAZORPAY_KEY_ID`, `_KEY_SECRET`, `_WEBHOOK_SECRET`,
@@ -387,13 +396,6 @@ subscription) survives. To diagnose a failed payment, look at the payment's
 `error_code` / `error_description` / `error_step` in the Razorpay dashboard (or
 `fetch_all_payments`) — e.g. "website does not match registered website(s)"
 means the domain isn't on the account's website list.
-
-**Not yet verified:** the LIVE VPA check. The request matches Razorpay's docs
-(URL, body `{vpa}`, response `{success, customer_name}`), but it has only ever
-been exercised with test keys, where the sandbox doesn't offer it. Its first
-real use will be the check; if Razorpay rejects it for the live account, the
-vendor sees the friendly message and the shop keeps working (call/WhatsApp) —
-it does not break checkout.
 
 **Test mode is dangerous by design** — anyone can pass the phone check for any
 number, so anyone can create an account for, or **reset the password of**, any
@@ -558,11 +560,11 @@ Terraform would then manage.
   its TanStack stack was not adopted): Home, Hyperlocal Shops (merchant
   4-step onboarding + Shops Nearby with Leaflet), Software Estimator,
   Terms, the OTP login modal and the burgundy/gold theme — all wired to
-  `apps/api` (OTP, slug check, shop create, subscription Checkout, UPI VPA
-  verification, nearby search, consultancy lead + ₹100 Checkout).
+  `apps/api` (OTP, slug check, shop create, subscription Checkout, owner-confirmed
+  UPI ID, nearby search, consultancy lead + ₹100 Checkout).
   Deliberate departures from the mock: the mock's fake "Razorpay
-  simulation" toasts are real Checkout now; Direct Order uses UPI VPA
-  verification + a dynamic QR instead of an uploaded static QR image; the
+  simulation" toasts are real Checkout now; Direct Order uses an owner-confirmed UPI ID
+  + a dynamic QR instead of an uploaded static QR image; the
   Terms page's e-sign panel is shown disabled ("coming soon") because the
   mock's version only fired a success toast and recorded nothing.
 - **Real, beyond the mock** (the mock only had the provisioning flow):

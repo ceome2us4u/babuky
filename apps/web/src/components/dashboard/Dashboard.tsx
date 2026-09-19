@@ -276,7 +276,7 @@ function PaymentsPanel({ shop, onChanged }: { shop: MyShop; onChanged: () => Pro
 
   const modes = [
     { id: "display", title: "Display Only", desc: "Showcase your catalog. Buyers call or WhatsApp you to order." },
-    { id: "order", title: "Direct Order", desc: "Buyers pay you directly via a UPI QR built from your verified UPI ID." },
+    { id: "order", title: "Direct Order", desc: "Buyers pay you directly via a UPI QR built from your UPI ID." },
   ] as const;
 
   return (
@@ -298,6 +298,7 @@ function PaymentsPanel({ shop, onChanged }: { shop: MyShop; onChanged: () => Pro
         <UpiSetup
           key={`${shop.id}-${shop.upi_id ?? ""}`}
           shopId={shop.id}
+          shopName={shop.name}
           verifiedName={shop.is_upi_verified ? shop.verified_merchant_name : null}
           verifiedUpiId={shop.is_upi_verified ? shop.upi_id : null}
           onVerified={() => void onChanged()}

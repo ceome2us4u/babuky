@@ -16,6 +16,7 @@ export const LIMITS = {
   projectDescription: 2000,
   message: 2000,
   search: 60,
+  upiName: 60,
   maxPricePaise: 100_000_000, // ₹10,00,000
   maxStock: 999_999,
   maxLeadItems: 30,
@@ -24,6 +25,8 @@ export const LIMITS = {
 // Indian mobile: 10 digits, starts with 6-9.
 export const PHONE_RE = /^[6-9]\d{9}$/;
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// The name a shop owner sees in their own UPI app for their UPI ID (shown to buyers next to the QR).
+export const UPI_NAME_RE = /^[\p{L}\p{N}][\p{L}\p{M}\p{N} .&'()-]{1,59}$/u;
 // DNS-safe label: a-z0-9 with single inner hyphens, 3-24 chars.
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const isSlug = (s: string) => s.length >= 3 && s.length <= 24 && SLUG_RE.test(s);

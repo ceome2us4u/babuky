@@ -63,50 +63,12 @@ export async function createVendorSubscription(shopId: string) {
   return { id: data.id, plan_id: data.plan_id };
 }
 
-// Track 1 (Direct Order shops): validates a vendor's UPI VPA via Razorpay's
-// VPA validation endpoint and returns the registered account name Razorpay
-// has on file for it. Not wrapped by the razorpay npm SDK (it only covers
-// orders/subscriptions/payments), so this calls the REST endpoint directly
-// with the same Basic Auth every other Razorpay API call here uses.
-// NOTE: unverified against a live account in this session (no real
-// RAZORPAY_KEY_ID/SECRET configured yet) — confirm the exact response
-// shape against Razorpay's own docs/a test call once real credentials
-// exist, before relying on this in production.
-export async function validateVpa(vpa: string): Promise<{ valid: boolean; customerName: string | null }> {
-  // Razorpay's sandbox doesn't offer VPA validation: with test keys the same
-  // call that is documented for live answers "The requested URL was not found
-  // on the server" (checked 2026-09-19 — other endpoints work fine with the
-  // same key). So in APP_MODE=test the check is SIMULATED and no request is
-  // made, the same "no real external calls in test mode" idea as the OTP. It
-  // follows Razorpay's own test-VPA convention: failure@razorpay fails, any
-  // other well-formed VPA succeeds with an obviously fake registered name.
-  if (isTestMode()) {
-    const local = vpa.split("@")[0];
-    return local.toLowerCase().startsWith("failure")
-      ? { valid: false, customerName: null }
-      : { valid: true, customerName: `TEST ACCOUNT (${local})` };
-  }
-
-  const keyId = razorpayKeyId();
-  const keySecret = razorpayKeySecret();
-
-  const res = await fetch("https://api.razorpay.com/v1/payments/validate/vpa", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`,
-    },
-    body: JSON.stringify({ vpa }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Razorpay VPA validation failed: ${res.status} ${body}`);
-  }
-
-  const data = (await res.json()) as { success?: boolean; customer_name?: string };
-  return { valid: data.success === true, customerName: data.customer_name ?? null };
-}
+// NOTE: there is deliberately no "validate this UPI ID" call here any more.
+// Razorpay's payments/validate/vpa belongs to the UPI Collect flow, which NPCI
+// switched off on 28 Feb 2026 ("The requested URL was not found" on live and
+// sandbox keys alike), and the replacement (fund-account validation) needs
+// RazorpayX, which isn't enabled on this account. Shop owners now confirm their
+// own UPI ID instead - see POST /shops/:id/upi/confirm in routes/shops.ts.
 
 const razorpayAuth = () =>
   `Basic ${Buffer.from(`${razorpayKeyId()}:${razorpayKeySecret()}`).toString("base64")}`;

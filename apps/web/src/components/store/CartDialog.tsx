@@ -47,8 +47,8 @@ export function CartDialog({
     if (!open) setView("cart");
   }, [open]);
 
-  // Direct Order needs a Razorpay-verified UPI ID; without one it degrades to
-  // the WhatsApp handoff rather than showing a QR built from unverified input.
+  // Direct Order needs a UPI ID the owner has confirmed; without one it degrades
+  // to the WhatsApp handoff rather than showing a QR built from unconfirmed input.
   const canPayOnline = shop.mode === "order" && shop.is_upi_verified && !!shop.upi_id;
   const upi = canPayOnline
     ? buildUpiLink({
@@ -140,6 +140,9 @@ export function CartDialog({
             <p className="text-sm font-medium">
               {shop.verified_merchant_name}
               <span className="block text-xs font-normal text-muted-foreground">{shop.upi_id}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Your UPI app shows who you&apos;re paying before you confirm — check it matches this shop.
             </p>
             <Button asChild className="w-full" size="lg">
               <a href={upi!}>

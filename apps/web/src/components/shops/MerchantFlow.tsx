@@ -316,12 +316,12 @@ export function MerchantFlow() {
               active={mode === "order"}
               onClick={() => setMode("order")}
               title="Direct Order"
-              desc="Buyers place orders and pay you directly via a UPI QR built from your verified UPI ID."
+              desc="Buyers place orders and pay you directly via a UPI QR built from your UPI ID."
             />
           </div>
           {mode === "order" && (
             <p className="rounded-md border border-dashed border-gold/40 p-4 text-sm text-muted-foreground">
-              You&apos;ll add and verify your UPI ID right after checkout. Payments go straight from the
+              You&apos;ll add your UPI ID and check it with your own UPI app right after checkout. Payments go straight from the
               buyer to your bank account — 0% commission, and Babuki never touches the money.
             </p>
           )}

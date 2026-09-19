@@ -86,7 +86,7 @@ export function ShopsTab({ onExpired }: { onExpired: () => void }) {
                     <Field label="Shop address">{s.address_text}</Field>
                     <Field label="Mode">{s.mode === "order" ? "Direct Order (UPI QR)" : "Display only"}</Field>
                     <Field label="UPI ID">
-                      {s.upi_id ? `${s.upi_id} — ${s.is_upi_verified ? `verified: ${s.verified_merchant_name}` : "not verified"}` : ""}
+                      {s.upi_id ? `${s.upi_id} — ${s.is_upi_verified ? `confirmed by the owner (name in their UPI app: ${s.verified_merchant_name})` : "not confirmed"}` : ""}
                     </Field>
                     <Field label="Subscription">
                       {s.subscription_status
