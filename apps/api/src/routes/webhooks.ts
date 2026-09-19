@@ -63,7 +63,10 @@ webhooks.post("/razorpay", async (c) => {
       break;
     }
     case "subscription.cancelled":
-    case "subscription.halted": {
+    case "subscription.halted":
+    // All authorised cycles were paid (see VENDOR_SUBSCRIPTION_CYCLES): the shop goes
+    // offline until renewed — on the same plan, so the price lock is unaffected.
+    case "subscription.completed": {
       const entity = event.payload?.subscription?.entity;
       if (entity?.id && isBabukiPlan(entity.plan_id)) {
         await query(

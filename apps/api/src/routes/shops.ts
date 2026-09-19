@@ -10,7 +10,7 @@ import { SHOP_MODES } from "../lib/constants.js";
 import { industryFilter, normalizeIndustry } from "../lib/industries.js";
 import { parseRadiusKm } from "../lib/search.js";
 import { findSlugHolder, noPaymentInFlight, releaseDraft } from "../lib/slug-hold.js";
-import { fetchSubscriptionStatus } from "../lib/razorpay.js";
+import { VENDOR_SUBSCRIPTION_CYCLES, fetchSubscription } from "../lib/razorpay.js";
 import { LIMITS, NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
 
 export const shops = new Hono();
@@ -382,7 +382,9 @@ shops.post("/:id/subscribe", async (c) => {
 
   try {
     // Backed out and came back? Reuse the subscription that is still waiting for a
-    // payment instead of piling up a new one at Razorpay on every attempt.
+    // payment instead of piling up a new one at Razorpay on every attempt — but only
+    // one of the right length: an old subscription made with a length that banks
+    // refuse (see VENDOR_SUBSCRIPTION_CYCLES) would just fail the payment again.
     const { rows: open } = await query<{ razorpay_subscription_id: string; razorpay_plan_id: string }>(
       `SELECT razorpay_subscription_id, razorpay_plan_id FROM shop_subscriptions
         WHERE shop_id = $1 AND status = 'pending' AND razorpay_subscription_id IS NOT NULL
@@ -391,7 +393,8 @@ shops.post("/:id/subscribe", async (c) => {
     );
     if (open[0]) {
       try {
-        if ((await fetchSubscriptionStatus(open[0].razorpay_subscription_id)) === "created") {
+        const existing = await fetchSubscription(open[0].razorpay_subscription_id);
+        if (existing.status === "created" && existing.totalCount === VENDOR_SUBSCRIPTION_CYCLES) {
           return c.json({
             subscription: { id: open[0].razorpay_subscription_id, plan_id: open[0].razorpay_plan_id },
             keyId: razorpayKeyId(),
