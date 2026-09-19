@@ -3,12 +3,12 @@ import type { Metadata } from "next";
 import { EstimatorView } from "@/components/estimator/EstimatorView";
 
 export const metadata: Metadata = {
-  title: "Software Scope & Cost Estimator — Babuki",
+  title: "Build Custom Software — Get a Price Estimate — Babuki",
   description:
-    "Build your software scope across deliverables, cloud infrastructure and telecom, and see a live budget range instantly.",
+    "Find out what a website, online shop or mobile app for your business could cost. Tick what you need and see a price range instantly — no technical knowledge needed.",
   openGraph: {
-    title: "Software Scope & Cost Estimator — Babuki",
-    description: "Transparent project scoping with a ₹100 refundable commitment deposit.",
+    title: "Build Custom Software — Get a Price Estimate — Babuki",
+    description: "A website, online shop or mobile app for your business. See the price range first, pay nothing to see it.",
   },
 };
 

@@ -20,8 +20,11 @@ import {
 
 const links = [
   { to: "/", label: "Home" },
-  { to: "/shops", label: "Hyperlocal Shops" },
-  { to: "/estimator", label: "Software Estimator" },
+  // Labels are the same words as the two offering cards on the home page
+  // ("Get Your Shop Online" / "Build Custom Software") so a visitor sees one
+  // name for one thing, wherever they meet it.
+  { to: "/shops", label: "Get Your Shop Online" },
+  { to: "/estimator", label: "Build Custom Software" },
   { to: "/terms", label: "Contract & Terms" },
 ] as const;
 

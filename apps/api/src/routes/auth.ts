@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { sendOtp, verifyOtp } from "../lib/msg91.js";
+import { OTP_LENGTH, OTP_TEST_CODE, sendOtp, verifyOtp } from "../lib/msg91.js";
 import { query } from "../lib/db.js";
 import { createSession, destroySession, SESSION_COOKIE, SESSION_TTL_SECONDS } from "../lib/session.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
@@ -26,8 +26,11 @@ auth.post("/otp/send", async (c) => {
   }
 
   try {
-    await sendOtp(`+91${phone}`);
-    return c.json({ ok: true });
+    const sent = await sendOtp(`+91${phone}`);
+    // APP_MODE=test: no SMS was sent. Return the code as `devOtpHint` (same
+    // field name Home uses) so the UI can show it instead of leaving people
+    // waiting for a text that will never arrive.
+    return c.json(sent.testMode ? { ok: true, devOtpHint: OTP_TEST_CODE } : { ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to send OTP";
     return c.json({ error: message }, 503);
@@ -41,7 +44,7 @@ auth.post("/otp/verify", async (c) => {
   const leadSource = body?.leadSource;
   const consent = body?.consent === true;
 
-  if (!PHONE_RE.test(phoneDigits) || !/^\d{4,6}$/.test(otp)) {
+  if (!PHONE_RE.test(phoneDigits) || !new RegExp(`^\\d{${OTP_LENGTH}}$`).test(otp)) {
     return c.json({ error: "A valid mobile number and the OTP are required" }, 400);
   }
   if (!LEAD_SOURCES.includes(leadSource)) {

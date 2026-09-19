@@ -77,18 +77,26 @@ fi
 # overrides before calling this script. Every one has a safe fallback so
 # the parts of the app that don't need it still work if left blank
 # (Razorpay/MSG91-dependent routes report 503 "not configured" instead). --
-# Publishable key id (NOT a secret — Razorpay hands it to the browser in
-# Checkout). Same Razorpay account as Home, so same key id as Home's own
-# deploy.sh; the matching key SECRET is babuki/prod/razorpay-key-secret.
-RAZORPAY_KEY_ID="${RAZORPAY_KEY_ID:-rzp_live_TVcJ60rbXf8yFR}"
-NEXT_PUBLIC_RAZORPAY_KEY_ID="${NEXT_PUBLIC_RAZORPAY_KEY_ID:-$RAZORPAY_KEY_ID}"
+# TEST / LIVE is ONE switch, APP_MODE=test|live, in the API's env on the box —
+# it drives OTP (test = no SMS, fixed code) AND Razorpay (test = TEST keys)
+# together, like Home's APP_MODE. It is flipped with scripts/set-app-mode.sh,
+# not by editing this file, and a deploy preserves the current value. Set
+# APP_MODE when calling this script only to force a value on deploy.
+APP_MODE_OVERRIDE="${APP_MODE:-}"
+case "$APP_MODE_OVERRIDE" in ""|test|live) ;; *) echo "APP_MODE must be 'test' or 'live'" >&2; exit 2 ;; esac
+# LIVE Razorpay config. The publishable key id is NOT a secret (Razorpay hands
+# it to the browser in Checkout); same account as Home, so same key id as
+# Home's own deploy.sh; the matching SECRET is babuki/prod/razorpay-key-secret.
+# The TEST set (key id/secret, webhook secret, plan id) lives entirely in
+# Secrets Manager as babuki/prod/razorpay-*-test — nothing to edit here.
+RAZORPAY_KEY_ID_LIVE="${RAZORPAY_KEY_ID_LIVE:-rzp_live_TVcJ60rbXf8yFR}"
 # Track 1 (hyperlocal vendors) ₹500/mo early-bird plan — created in the
 # Razorpay dashboard 2026-09-18 ("babuki subdomain - early bird"). Its
 # amount is immutable on Razorpay's side, so pointing a subscription at
 # this specific plan id IS the lifetime-lock mechanism (see
 # apps/api/src/lib/razorpay.ts). A future ₹1,500/mo cohort gets a second,
 # separate plan id — this one is never edited to change price.
-RAZORPAY_VENDOR_PLAN_ID="${RAZORPAY_VENDOR_PLAN_ID:-plan_TdVzzDQoYIGSj0}"
+RAZORPAY_VENDOR_PLAN_ID_LIVE="${RAZORPAY_VENDOR_PLAN_ID_LIVE:-plan_TdVzzDQoYIGSj0}"
 MSG91_OTP_TEMPLATE_ID="${MSG91_OTP_TEMPLATE_ID:-}"
 MSG91_SENDER_ID="${MSG91_SENDER_ID:-}"
 BABUKI_S3_BUCKET="${BABUKI_S3_BUCKET:-babuki-item-images-551362153374}"
@@ -111,7 +119,6 @@ BUILD_ENV_FILE="$ROOT/apps/web/.env.production.local"
 trap 'rm -f "$BUILD_ENV_FILE"' EXIT
 cat > "$BUILD_ENV_FILE" <<EOF
 NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-NEXT_PUBLIC_RAZORPAY_KEY_ID=$NEXT_PUBLIC_RAZORPAY_KEY_ID
 EOF
 (cd "$ROOT/apps/web" && npm install && npm run build)
 rm -f "$BUILD_ENV_FILE"
@@ -164,8 +171,8 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mv /tmp/babuki.conf /etc/nginx/sites-av
 echo "==> [3/7] assemble apps/api/.env + apps/web/.env on the box (Secrets Manager via instance role)"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
 	REGION="$REGION" REMOTE_DIR="$REMOTE_DIR" \
-	RAZORPAY_KEY_ID="$RAZORPAY_KEY_ID" NEXT_PUBLIC_RAZORPAY_KEY_ID="$NEXT_PUBLIC_RAZORPAY_KEY_ID" \
-	RAZORPAY_VENDOR_PLAN_ID="$RAZORPAY_VENDOR_PLAN_ID" \
+	APP_MODE_OVERRIDE="$APP_MODE_OVERRIDE" \
+	RAZORPAY_KEY_ID_LIVE="$RAZORPAY_KEY_ID_LIVE" RAZORPAY_VENDOR_PLAN_ID_LIVE="$RAZORPAY_VENDOR_PLAN_ID_LIVE" \
 	MSG91_OTP_TEMPLATE_ID="$MSG91_OTP_TEMPLATE_ID" MSG91_SENDER_ID="$MSG91_SENDER_ID" \
 	BABUKI_S3_BUCKET="$BABUKI_S3_BUCKET" NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
 	'bash -s' <<'REMOTE'
@@ -174,19 +181,34 @@ umask 077
 sec() { aws secretsmanager get-secret-value --region "$REGION" --secret-id "$1" --query SecretString --output text; }
 opt_sec() { sec "$1" 2>/dev/null || true; }
 
+# APP_MODE (test|live) is an env property on the box, flipped with
+# scripts/set-app-mode.sh — never by editing this script. A deploy PRESERVES
+# it: an explicit APP_MODE override wins, else whatever is already on the box,
+# else (first deploy) LIVE. Must be read BEFORE the `cat >` below truncates it.
+CURRENT_MODE="$(grep -s '^APP_MODE=' "$REMOTE_DIR/api/.env" | tail -1 | cut -d= -f2 || true)"
+case "${APP_MODE_OVERRIDE:-$CURRENT_MODE}" in test) APP_MODE=test ;; *) APP_MODE=live ;; esac
+
+# Both credential sets side by side (Home's convention): the API picks
+# <NAME>_LIVE or <NAME>_TEST by APP_MODE and fails closed if the active one is
+# missing. TEST values live in Secrets Manager (empty/placeholder until set).
 cat > "$REMOTE_DIR/api/.env" <<ENV
 NODE_ENV=production
 PORT=8000
 AWS_REGION=$REGION
+APP_MODE=$APP_MODE
 DATABASE_URL=$(sec babuki/prod/db-url)
 SESSION_SECRET=$(sec babuki/prod/session-secret)
 MSG91_AUTH_KEY=$(opt_sec babuki/prod/msg91-auth-key)
 MSG91_OTP_TEMPLATE_ID=$MSG91_OTP_TEMPLATE_ID
 MSG91_SENDER_ID=$MSG91_SENDER_ID
-RAZORPAY_KEY_ID=$RAZORPAY_KEY_ID
-RAZORPAY_KEY_SECRET=$(opt_sec babuki/prod/razorpay-key-secret)
-RAZORPAY_WEBHOOK_SECRET=$(opt_sec babuki/prod/razorpay-webhook-secret)
-RAZORPAY_VENDOR_PLAN_ID=$RAZORPAY_VENDOR_PLAN_ID
+RAZORPAY_KEY_ID_LIVE=$RAZORPAY_KEY_ID_LIVE
+RAZORPAY_KEY_SECRET_LIVE=$(opt_sec babuki/prod/razorpay-key-secret)
+RAZORPAY_WEBHOOK_SECRET_LIVE=$(opt_sec babuki/prod/razorpay-webhook-secret)
+RAZORPAY_VENDOR_PLAN_ID_LIVE=$RAZORPAY_VENDOR_PLAN_ID_LIVE
+RAZORPAY_KEY_ID_TEST=$(opt_sec babuki/prod/razorpay-key-id-test)
+RAZORPAY_KEY_SECRET_TEST=$(opt_sec babuki/prod/razorpay-key-secret-test)
+RAZORPAY_WEBHOOK_SECRET_TEST=$(opt_sec babuki/prod/razorpay-webhook-secret-test)
+RAZORPAY_VENDOR_PLAN_ID_TEST=$(opt_sec babuki/prod/razorpay-vendor-plan-id-test)
 BABUKI_S3_BUCKET=$BABUKI_S3_BUCKET
 ENV
 
@@ -194,8 +216,9 @@ cat > "$REMOTE_DIR/web/apps/web/.env" <<ENV
 NODE_ENV=production
 PORT=3000
 NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-NEXT_PUBLIC_RAZORPAY_KEY_ID=$NEXT_PUBLIC_RAZORPAY_KEY_ID
 ENV
+
+echo "  APP_MODE=$APP_MODE"
 
 echo "  wrote $REMOTE_DIR/api/.env and $REMOTE_DIR/web/apps/web/.env"
 REMOTE

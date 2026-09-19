@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { query } from "../lib/db.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
 import { requireShopOwner } from "../lib/require-shop-owner.js";
-import { createVendorSubscription, validateVpa } from "../lib/razorpay.js";
+import { createVendorSubscription, razorpayKeyId, validateVpa } from "../lib/razorpay.js";
 import { createItemImageUploadUrl } from "../lib/storage.js";
 import { SHOP_INDUSTRIES, SHOP_MODES } from "../lib/constants.js";
 import { LIMITS, NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
@@ -317,7 +317,8 @@ shops.post("/:id/subscribe", async (c) => {
        VALUES ($1, $2, $3, 'pending')`,
       [shopId, subscription.id, subscription.plan_id],
     );
-    return c.json({ subscription });
+    // keyId: the browser opens Checkout with the key for the ACTIVE mode.
+    return c.json({ subscription, keyId: razorpayKeyId() });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create subscription";
     return c.json({ error: message }, 503);

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { query } from "../lib/db.js";
-import { verifyWebhookSignature } from "../lib/razorpay.js";
+import { vendorPlanId, verifyWebhookSignature } from "../lib/razorpay.js";
 
 export const webhooks = new Hono();
 
@@ -23,7 +23,11 @@ type RazorpayWebhookEvent = {
 // than Babuki's own (RAZORPAY_VENDOR_PLAN_ID) are ignored outright, before
 // touching the database at all.
 function isBabukiPlan(planId: string | undefined): boolean {
-  return !!planId && planId === process.env.RAZORPAY_VENDOR_PLAN_ID;
+  try {
+    return !!planId && planId === vendorPlanId();
+  } catch {
+    return false; // this mode's plan isn't configured -> nothing is "ours"
+  }
 }
 
 webhooks.post("/razorpay", async (c) => {

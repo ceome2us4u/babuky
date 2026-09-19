@@ -70,8 +70,12 @@ export function Dashboard() {
   const subscribe = async (s: MyShop) => {
     setPaying(true);
     try {
-      const { subscription } = await apiPost<{ subscription: { id: string } }>(`/shops/${s.id}/subscribe`, {});
+      const { subscription, keyId } = await apiPost<{ subscription: { id: string }; keyId: string }>(
+        `/shops/${s.id}/subscribe`,
+        {},
+      );
       await openRazorpayCheckout({
+        keyId,
         subscriptionId: subscription.id,
         description: `${s.slug}.${siteConfig.domain} · ₹500/month`,
         prefill: { name: user?.profile?.fullName, email: user?.profile?.email, contact: user?.phone },

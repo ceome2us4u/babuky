@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
 import { env, isAllowedOrigin } from "./env.js";
+import { appMode, isTestMode } from "./lib/mode.js";
 import { auth } from "./routes/auth.js";
 import { shops } from "./routes/shops.js";
 import { consultancy } from "./routes/consultancy.js";
@@ -26,7 +27,9 @@ app.use(
   }),
 );
 
-app.get("/health", (c) => c.json({ service: "babuki-api", ok: true }));
+// The mode is reported here on purpose: in "test" anyone can sign in as any
+// phone number, so the live state must be checkable from outside.
+app.get("/health", (c) => c.json({ service: "babuki-api", ok: true, mode: appMode() }));
 
 app.route("/auth", auth);
 app.route("/shops", shops);
@@ -37,4 +40,10 @@ app.route("/contact", contact);
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {
   console.log(`babuki-api listening on :${info.port}`);
+  if (isTestMode()) {
+    console.warn(
+      "!!! APP_MODE=test: no SMS is sent and ANY phone number can sign in with the fixed test code. " +
+        "Run `scripts/set-app-mode.sh live <host>` before real users rely on their accounts.",
+    );
+  }
 });

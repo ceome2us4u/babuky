@@ -20,6 +20,9 @@ export const LIMITS = {
   maxPriceRupees: 1_000_000,
 } as const;
 
+// Sign-in code length — must match OTP_LENGTH in apps/api/src/lib/msg91.ts.
+export const OTP_LENGTH = 5;
+
 // Indian mobile numbers are 10 digits and start with 6-9.
 export const PHONE_RE = /^[6-9]\d{9}$/;
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

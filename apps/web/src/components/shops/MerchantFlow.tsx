@@ -155,8 +155,12 @@ export function MerchantFlow() {
         id = created.shop.id;
         setShopId(id);
       }
-      const { subscription } = await apiPost<{ subscription: { id: string } }>(`/shops/${id}/subscribe`, {});
+      const { subscription, keyId } = await apiPost<{ subscription: { id: string }; keyId: string }>(
+        `/shops/${id}/subscribe`,
+        {},
+      );
       await openRazorpayCheckout({
+        keyId,
         subscriptionId: subscription.id,
         description: `${slug}.${siteConfig.domain} · ₹500/month, locked for life`,
         prefill: { name: ownerName, email: user?.profile?.email, contact: user?.phone },
