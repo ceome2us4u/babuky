@@ -99,6 +99,9 @@ RAZORPAY_KEY_ID_LIVE="${RAZORPAY_KEY_ID_LIVE:-rzp_live_TVcJ60rbXf8yFR}"
 RAZORPAY_VENDOR_PLAN_ID_LIVE="${RAZORPAY_VENDOR_PLAN_ID_LIVE:-plan_TdVzzDQoYIGSj0}"
 MSG91_OTP_TEMPLATE_ID="${MSG91_OTP_TEMPLATE_ID:-}"
 MSG91_SENDER_ID="${MSG91_SENDER_ID:-}"
+# Who may sign in to the admin console (comma-separated). Passwords are set with
+# scripts/set-admin-password.sh, never here.
+ADMIN_EMAILS="${ADMIN_EMAILS:-ceo@me2us4u.com}"
 BABUKI_S3_BUCKET="${BABUKI_S3_BUCKET:-babuki-item-images-551362153374}"
 NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://api.babuki.com}"
 
@@ -175,6 +178,7 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
 	RAZORPAY_KEY_ID_LIVE="$RAZORPAY_KEY_ID_LIVE" RAZORPAY_VENDOR_PLAN_ID_LIVE="$RAZORPAY_VENDOR_PLAN_ID_LIVE" \
 	MSG91_OTP_TEMPLATE_ID="$MSG91_OTP_TEMPLATE_ID" MSG91_SENDER_ID="$MSG91_SENDER_ID" \
 	BABUKI_S3_BUCKET="$BABUKI_S3_BUCKET" NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
+	ADMIN_EMAILS="$ADMIN_EMAILS" \
 	'bash -s' <<'REMOTE'
 set -euo pipefail
 umask 077
@@ -210,6 +214,7 @@ RAZORPAY_KEY_SECRET_TEST=$(opt_sec babuki/prod/razorpay-key-secret-test)
 RAZORPAY_WEBHOOK_SECRET_TEST=$(opt_sec babuki/prod/razorpay-webhook-secret-test)
 RAZORPAY_VENDOR_PLAN_ID_TEST=$(opt_sec babuki/prod/razorpay-vendor-plan-id-test)
 BABUKI_S3_BUCKET=$BABUKI_S3_BUCKET
+ADMIN_EMAILS=$ADMIN_EMAILS
 ENV
 
 cat > "$REMOTE_DIR/web/apps/web/.env" <<ENV

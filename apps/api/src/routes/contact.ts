@@ -1,12 +1,19 @@
 import { Hono } from "hono";
+import { query } from "../lib/db.js";
+import { allow, clientIp } from "../lib/rate-limit.js";
 import { EMAIL_RE, LIMITS, NAME_RE, str, textError } from "../lib/validation.js";
 
 export const contact = new Hono();
 
-// TODO: wire up real delivery (e.g. AWS SES) once Google Workspace / a
-// public contact address exists. For now this just validates the payload
-// and confirms receipt without sending anything.
+// Messages are stored (see the admin console at babuki.com/admin) — this used
+// to validate and then drop them. Public and unauthenticated, so it is
+// rate-limited per IP: 5 an hour, 40 a day.
 contact.post("/", async (c) => {
+  const ip = clientIp(c);
+  if (!allow(`contact:h:${ip}`, 5, 60 * 60 * 1000) || !allow(`contact:d:${ip}`, 40, 24 * 60 * 60 * 1000)) {
+    return c.json({ error: "You've sent a few messages already — please try again later." }, 429);
+  }
+
   const body = await c.req.json().catch(() => null);
 
   const name = str(body?.name);
@@ -33,5 +40,6 @@ contact.post("/", async (c) => {
     return c.json({ error: tooLong }, 400);
   }
 
-  return c.json({ status: "received", detail: "TODO: email delivery is not wired up yet." }, 202);
+  await query("INSERT INTO contact_messages (name, email, message) VALUES ($1, $2, $3)", [name, email, message]);
+  return c.json({ status: "received" }, 201);
 });
