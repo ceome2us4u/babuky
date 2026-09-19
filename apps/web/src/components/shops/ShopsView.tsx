@@ -50,7 +50,7 @@ export function ShopsView() {
             <Store className="size-4" /> I own a shop
           </TabsTrigger>
           <TabsTrigger value="buyer" className="gap-2">
-            <Search className="size-4" /> Find shops near me
+            <Search className="size-4" /> Find shops
           </TabsTrigger>
         </TabsList>
         <TabsContent value="merchant">
