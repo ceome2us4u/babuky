@@ -34,13 +34,33 @@ export async function createOrder(amountInPaise: number, receipt: string) {
 // Razorpay's side, so pointing a subscription at this specific plan id *is*
 // the lifetime-lock mechanism. A future ₹1,500/mo cohort gets a different plan
 // id; existing subscriptions are unaffected.
+//
+// How many monthly cycles to authorise up front. A UPI AutoPay mandate has an END
+// DATE, and banks/UPI apps refuse one that runs too long. This used to be 1200
+// (100 years): every UPI attempt failed with GPay's "something went wrong" and
+// Razorpay's "Payment is not allowed for this account" (2026-09-19), while Home's
+// monthly subscription — 120 cycles, ~10 years — was accepted by the same bank.
+// Keep it at 120. When the last cycle is paid the subscription completes and the
+// shop is suspended until renewed; renewing uses the SAME plan, so the ₹500 lock
+// (the plan, not the subscription) is unaffected.
+export const VENDOR_SUBSCRIPTION_CYCLES = 120;
+
 export async function createVendorSubscription(shopId: string) {
-  return getClient().subscriptions.create({
-    plan_id: vendorPlanId(),
-    customer_notify: 1,
-    total_count: 1200, // ~100 years of monthly cycles; Razorpay subscriptions require a bound
-    notes: { shop_id: shopId },
+  const res = await fetch("https://api.razorpay.com/v1/subscriptions", {
+    method: "POST",
+    headers: { Authorization: razorpayAuth(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      plan_id: vendorPlanId(),
+      customer_notify: 1,
+      total_count: VENDOR_SUBSCRIPTION_CYCLES,
+      notes: { shop_id: shopId },
+    }),
   });
+  const data = (await res.json().catch(() => ({}))) as { id?: string; plan_id?: string; error?: { description?: string } };
+  if (!res.ok || !data.id || !data.plan_id) {
+    throw new Error(`Razorpay subscription create failed: ${res.status} ${data.error?.description ?? ""}`);
+  }
+  return { id: data.id, plan_id: data.plan_id };
 }
 
 // Track 1 (Direct Order shops): validates a vendor's UPI VPA via Razorpay's
@@ -91,14 +111,18 @@ export async function validateVpa(vpa: string): Promise<{ valid: boolean; custom
 const razorpayAuth = () =>
   `Basic ${Buffer.from(`${razorpayKeyId()}:${razorpayKeySecret()}`).toString("base64")}`;
 
-/** A subscription's current state at Razorpay (created, authenticated, active, cancelled, ...). */
-export async function fetchSubscriptionStatus(subscriptionId: string): Promise<string> {
+/** A subscription as Razorpay has it: its state (created, authenticated, active, cancelled, ...) and length. */
+export async function fetchSubscription(subscriptionId: string): Promise<{ status: string; totalCount: number | null }> {
   const res = await fetch(`https://api.razorpay.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     headers: { Authorization: razorpayAuth() },
   });
-  const data = (await res.json().catch(() => ({}))) as { status?: string };
+  const data = (await res.json().catch(() => ({}))) as { status?: string; total_count?: number };
   if (!res.ok || !data.status) throw new Error(`Razorpay subscription lookup failed: ${res.status}`);
-  return data.status;
+  return { status: data.status, totalCount: typeof data.total_count === "number" ? data.total_count : null };
+}
+
+export async function fetchSubscriptionStatus(subscriptionId: string): Promise<string> {
+  return (await fetchSubscription(subscriptionId)).status;
 }
 
 /** Cancels a subscription immediately (used when an unpaid draft shop is released). */

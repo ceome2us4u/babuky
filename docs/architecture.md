@@ -373,6 +373,21 @@ right now. Please try again in a moment.") — never provider JSON or variable
 names. In TEST the detail is returned so testers can see what broke. Use it for
 any new upstream call.
 
+**Subscription length matters (learned 2026-09-19).** A UPI AutoPay mandate
+has an end date, and banks/UPI apps refuse one that runs too long. Babuki's
+subscriptions were created with `total_count: 1200` (100 years): every UPI
+attempt failed with GPay's "something went wrong" and Razorpay's "Payment is
+not allowed for this account" (`GATEWAY_ERROR`, source `customer`), while
+Home's monthly subscription (120 cycles) was accepted by the same bank on the
+same Razorpay account. `VENDOR_SUBSCRIPTION_CYCLES = 120` (~10 years) in
+`lib/razorpay.ts` is now the value; `/subscribe` never reuses an open
+subscription of any other length; and `subscription.completed` suspends the
+shop until renewed on the SAME plan, so the ₹500 lock (the plan, not the
+subscription) survives. To diagnose a failed payment, look at the payment's
+`error_code` / `error_description` / `error_step` in the Razorpay dashboard (or
+`fetch_all_payments`) — e.g. "website does not match registered website(s)"
+means the domain isn't on the account's website list.
+
 **Not yet verified:** the LIVE VPA check. The request matches Razorpay's docs
 (URL, body `{vpa}`, response `{success, customer_name}`), but it has only ever
 been exercised with test keys, where the sandbox doesn't offer it. Its first
