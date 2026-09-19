@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { query } from "../lib/db.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
 import { requireShopOwner } from "../lib/require-shop-owner.js";
+import { publicError } from "../lib/mode.js";
 import { createVendorSubscription, razorpayKeyId, validateVpa } from "../lib/razorpay.js";
 import { createItemImageUploadUrl } from "../lib/storage.js";
 import { SHOP_INDUSTRIES, SHOP_MODES } from "../lib/constants.js";
@@ -205,7 +206,7 @@ shops.post("/:id/upi/validate", async (c) => {
     if (!result.valid) return c.json({ error: "This UPI ID could not be verified" }, 422);
     return c.json({ valid: true, upiId, customerName: result.customerName });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to validate UPI ID";
+    const message = publicError(error, "We couldn't verify your UPI ID right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
   }
 });
@@ -235,7 +236,7 @@ shops.post("/:id/upi/confirm", async (c) => {
     );
     return c.json({ shop: rows[0] });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to confirm UPI ID";
+    const message = publicError(error, "We couldn't verify your UPI ID right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
   }
 });
@@ -320,7 +321,7 @@ shops.post("/:id/subscribe", async (c) => {
     // keyId: the browser opens Checkout with the key for the ACTIVE mode.
     return c.json({ subscription, keyId: razorpayKeyId() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to create subscription";
+    const message = publicError(error, "We couldn't start the subscription payment right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
   }
 });

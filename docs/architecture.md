@@ -260,6 +260,7 @@ normal deploy never flips it. One switch drives *everything* mode-dependent:
 |---|---|---|
 | **OTP** | no SMS is sent; the fixed code `12345` signs in **any** phone number and is returned to the UI as `devOtpHint` (the login screen shows it) | real MSG91 SMS |
 | **Razorpay** | `RAZORPAY_*_TEST` credentials | `RAZORPAY_*_LIVE` credentials |
+| **UPI ID (VPA) check** | **simulated** — Razorpay's sandbox doesn't offer it (with test keys the documented call answers "URL not found" while other endpoints work); `failure@razorpay` fails, any other well-formed VPA passes as `TEST ACCOUNT (name)` | real `POST /v1/payments/validate/vpa` |
 
 Razorpay follows Home's pick-by-suffix pattern: both sets sit side by side in
 the env (`RAZORPAY_KEY_ID`, `_KEY_SECRET`, `_WEBHOOK_SECRET`,
@@ -277,6 +278,20 @@ Because the frontend can't hold a build-time key that a runtime flip would
 leave stale, **the API returns the active mode's publishable `keyId` with
 every payment** (`/shops/:id/subscribe`, `/consultancy/leads`); the web opens
 Checkout with that, and there is no `NEXT_PUBLIC_RAZORPAY_KEY_ID` any more.
+
+**Users never see provider errors.** When Razorpay/MSG91/missing config fails,
+routes return `publicError()` (`lib/mode.ts`): the real error is logged, and in
+LIVE the user gets only a friendly sentence ("We couldn't verify your UPI ID
+right now. Please try again in a moment.") — never provider JSON or variable
+names. In TEST the detail is returned so testers can see what broke. Use it for
+any new upstream call.
+
+**Not yet verified:** the LIVE VPA check. The request matches Razorpay's docs
+(URL, body `{vpa}`, response `{success, customer_name}`), but it has only ever
+been exercised with test keys, where the sandbox doesn't offer it. Its first
+real use will be the check; if Razorpay rejects it for the live account, the
+vendor sees the friendly message and the shop keeps working (call/WhatsApp) —
+it does not break checkout.
 
 **Test mode is dangerous by design** — anyone can sign in as anyone — so it is
 for the period before Babuki has a DLT-approved SMS sender. Flip to `live`
