@@ -6,6 +6,7 @@ import { requireShopOwner } from "../lib/require-shop-owner.js";
 import { createVendorSubscription, validateVpa } from "../lib/razorpay.js";
 import { createItemImageUploadUrl } from "../lib/storage.js";
 import { SHOP_INDUSTRIES, SHOP_MODES } from "../lib/constants.js";
+import { LIMITS, NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
 
 export const shops = new Hono();
 
@@ -18,6 +19,7 @@ const RESERVED_SLUGS = new Set([
 // awaiting payment) or after (suspended) only its owner may read it, so a
 // vendor can build the catalog before paying and still see it if they lapse.
 async function shopVisibleTo(c: Context, shopId: string): Promise<boolean> {
+  if (!isUuid(shopId)) return false;
   const { rows } = await query<{ status: string; owner_phone: string }>(
     "SELECT status, owner_phone FROM shops WHERE id = $1",
     [shopId],
@@ -28,12 +30,23 @@ async function shopVisibleTo(c: Context, shopId: string): Promise<boolean> {
   return !!phone && phone === rows[0].owner_phone;
 }
 
+// An item photo must be one this API issued an upload URL for: an object in
+// Babuki's own bucket under this shop's prefix. Otherwise a vendor could point
+// an item at any external URL (tracking pixels, other people's images).
+function isOwnImageUrl(shopId: string, url: string): boolean {
+  const bucket = process.env.BABUKI_S3_BUCKET;
+  const region = process.env.AWS_REGION;
+  if (!bucket || !region) return false;
+  const prefix = `https://${bucket}.s3.${region}.amazonaws.com/shops/${shopId}/items/`;
+  return url.startsWith(prefix) && !url.includes("..") && url.length <= 512;
+}
+
 // --- create / discover --------------------------------------------------
 
 shops.get("/slug-available", async (c) => {
   const slug = (c.req.query("slug") ?? "").toLowerCase();
 
-  if (!/^[a-z0-9-]{3,24}$/.test(slug)) {
+  if (!isSlug(slug)) {
     return c.json({ available: false, reason: "invalid" });
   }
   if (RESERVED_SLUGS.has(slug)) {
@@ -125,20 +138,29 @@ shops.post("/", async (c) => {
   }
 
   const body = await c.req.json().catch(() => null);
-  const slug = typeof body?.slug === "string" ? body.slug.toLowerCase() : "";
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const ownerName = typeof body?.ownerName === "string" ? body.ownerName.trim() : "";
+  const slug = str(body?.slug).toLowerCase();
+  const name = str(body?.name);
+  const ownerName = str(body?.ownerName);
   const industry = body?.industry;
   const mode = body?.mode;
-  const lat = Number(body?.lat);
-  const lng = Number(body?.lng);
-  const addressText = typeof body?.addressText === "string" ? body.addressText : "";
+  const lat = typeof body?.lat === "number" ? body.lat : NaN;
+  const lng = typeof body?.lng === "number" ? body.lng : NaN;
+  const addressText = str(body?.addressText);
 
-  if (!/^[a-z0-9-]{3,24}$/.test(slug)) return c.json({ error: "slug is invalid" }, 400);
+  if (!isSlug(slug)) return c.json({ error: "Subdomain must be 3-24 letters/digits, with single hyphens inside" }, 400);
+  if (RESERVED_SLUGS.has(slug)) return c.json({ error: "That subdomain is reserved" }, 400);
   if (!name || !ownerName) return c.json({ error: "name and ownerName are required" }, 400);
+  if (!NAME_RE.test(ownerName)) return c.json({ error: "Owner name can only contain letters, spaces and . ' -" }, 400);
+  const tooLong =
+    textError("Store name", name, LIMITS.shopName) ??
+    textError("Owner name", ownerName, LIMITS.fullName) ??
+    textError("Address", addressText, LIMITS.address);
+  if (tooLong) return c.json({ error: tooLong }, 400);
   if (!SHOP_INDUSTRIES.includes(industry)) return c.json({ error: "industry is invalid" }, 400);
   if (!SHOP_MODES.includes(mode)) return c.json({ error: "mode is invalid" }, 400);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return c.json({ error: "lat/lng are required" }, 400);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return c.json({ error: "lat/lng are required and must be valid coordinates" }, 400);
+  }
 
   // Direct Order mode shops start unverified — UPI VPA collection/
   // verification is its own follow-up step (POST /:id/upi/validate then
@@ -232,22 +254,28 @@ shops.get("/nearby", async (c) => {
 
   const lat = Number(c.req.query("lat"));
   const lng = Number(c.req.query("lng"));
-  const radiusKm = Math.min(Number(c.req.query("radiusKm") ?? 5), 10);
+  const radiusParam = Number(c.req.query("radiusKm") ?? 5);
+  // A missing/garbage radius falls back to 5 km; never more than 10.
+  const radiusKm = Number.isFinite(radiusParam) && radiusParam > 0 ? Math.min(radiusParam, 10) : 5;
   const industry = c.req.query("industry");
-  const q = c.req.query("q") ?? "";
+  const q = (c.req.query("q") ?? "").trim().slice(0, LIMITS.search);
 
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return c.json({ error: "lat/lng are required" }, 400);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return c.json({ error: "lat/lng are required and must be valid coordinates" }, 400);
   }
 
   const params: unknown[] = [lng, lat, radiusKm * 1000];
   let filter = "";
   if (industry && industry !== "All") {
+    if (!SHOP_INDUSTRIES.includes(industry as (typeof SHOP_INDUSTRIES)[number])) {
+      return c.json({ error: "industry is invalid" }, 400);
+    }
     params.push(industry);
     filter += ` AND industry = $${params.length}`;
   }
   if (q) {
-    params.push(`%${q.toLowerCase()}%`);
+    // Escape LIKE wildcards so a search for "50%_off" matches literally.
+    params.push(`%${q.toLowerCase().replace(/[\\%_]/g, "\\$&")}%`);
     filter += ` AND lower(name) LIKE $${params.length}`;
   }
 
@@ -316,9 +344,11 @@ shops.post("/:id/categories", async (c) => {
   if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
 
   const body = await c.req.json().catch(() => null);
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const sortOrder = Number.isFinite(body?.sortOrder) ? Number(body.sortOrder) : 0;
+  const name = str(body?.name);
+  const sortOrder = isIntInRange(body?.sortOrder, 0, 10_000) ? body.sortOrder : 0;
   if (!name) return c.json({ error: "name is required" }, 400);
+  const nameErr = textError("Category name", name, LIMITS.category);
+  if (nameErr) return c.json({ error: nameErr }, 400);
 
   try {
     const { rows } = await query(
@@ -342,11 +372,14 @@ shops.patch("/:id/categories/:categoryId", async (c) => {
   if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
 
   const body = await c.req.json().catch(() => null);
+  if (!isUuid(categoryId)) return c.json({ error: "Category not found" }, 404);
   const name = typeof body?.name === "string" ? body.name.trim() : undefined;
-  const sortOrder = Number.isFinite(body?.sortOrder) ? Number(body.sortOrder) : undefined;
+  const sortOrder = isIntInRange(body?.sortOrder, 0, 10_000) ? body.sortOrder : undefined;
 
   if (name === undefined && sortOrder === undefined) return c.json({ error: "Nothing to update" }, 400);
   if (name !== undefined && !name) return c.json({ error: "name cannot be empty" }, 400);
+  const nameErr = name === undefined ? null : textError("Category name", name, LIMITS.category);
+  if (nameErr) return c.json({ error: nameErr }, 400);
 
   const { rows } = await query(
     `UPDATE shop_categories
@@ -366,6 +399,7 @@ shops.delete("/:id/categories/:categoryId", async (c) => {
   if (!phone) return c.json({ error: "Not authenticated" }, 401);
   if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
 
+  if (!isUuid(categoryId)) return c.json({ error: "Category not found" }, 404);
   const { rowCount } = await query("DELETE FROM shop_categories WHERE id = $1 AND shop_id = $2", [categoryId, shopId]);
   if (rowCount === 0) return c.json({ error: "Category not found" }, 404);
   return c.json({ ok: true });
@@ -398,21 +432,29 @@ shops.post("/:id/items", async (c) => {
   if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
 
   const body = await c.req.json().catch(() => null);
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const brand = typeof body?.brand === "string" ? body.brand.trim() : "";
-  const description = typeof body?.description === "string" ? body.description.trim() : "";
-  const categoryId = typeof body?.categoryId === "string" ? body.categoryId : null;
-  const priceInPaise = Number(body?.priceInPaise);
-  const imageUrl = typeof body?.imageUrl === "string" ? body.imageUrl : null;
-  const stockQuantity =
-    body?.stockQuantity === null || body?.stockQuantity === undefined ? null : Number(body.stockQuantity);
+  const name = str(body?.name);
+  const brand = str(body?.brand);
+  const description = str(body?.description);
+  const categoryId = typeof body?.categoryId === "string" && body.categoryId ? body.categoryId : null;
+  const priceInPaise = body?.priceInPaise;
+  const imageUrl = typeof body?.imageUrl === "string" && body.imageUrl ? body.imageUrl : null;
+  const stockQuantity = body?.stockQuantity === null || body?.stockQuantity === undefined ? null : body.stockQuantity;
 
   if (!name) return c.json({ error: "name is required" }, 400);
-  if (!Number.isFinite(priceInPaise) || priceInPaise < 0) {
-    return c.json({ error: "priceInPaise must be a non-negative number" }, 400);
+  const tooLong =
+    textError("Item name", name, LIMITS.itemName) ??
+    textError("Brand", brand, LIMITS.brand) ??
+    textError("Description", description, LIMITS.description);
+  if (tooLong) return c.json({ error: tooLong }, 400);
+  if (!isIntInRange(priceInPaise, 0, LIMITS.maxPricePaise)) {
+    return c.json({ error: "Price must be between ₹0 and ₹10,00,000" }, 400);
   }
-  if (stockQuantity !== null && (!Number.isFinite(stockQuantity) || stockQuantity < 0)) {
-    return c.json({ error: "stockQuantity must be a non-negative number or null" }, 400);
+  if (stockQuantity !== null && !isIntInRange(stockQuantity, 0, LIMITS.maxStock)) {
+    return c.json({ error: "Stock must be a whole number from 0 to 999999, or left untracked" }, 400);
+  }
+  if (categoryId && !isUuid(categoryId)) return c.json({ error: "categoryId is invalid" }, 400);
+  if (imageUrl && !isOwnImageUrl(shopId, imageUrl)) {
+    return c.json({ error: "imageUrl must be a photo uploaded through Babuki" }, 400);
   }
 
   if (categoryId) {
@@ -446,16 +488,29 @@ shops.patch("/:id/items/:itemId", async (c) => {
     fields.push(`${column} = $${values.length}`);
   }
 
+  if (!isUuid(itemId)) return c.json({ error: "Item not found" }, 404);
+
   if (typeof body.name === "string") {
     const name = body.name.trim();
     if (!name) return c.json({ error: "name cannot be empty" }, 400);
+    const err = textError("Item name", name, LIMITS.itemName);
+    if (err) return c.json({ error: err }, 400);
     set("name", name);
   }
-  if (typeof body.brand === "string") set("brand", body.brand.trim());
-  if (typeof body.description === "string") set("description", body.description.trim());
+  if (typeof body.brand === "string") {
+    const err = textError("Brand", body.brand.trim(), LIMITS.brand);
+    if (err) return c.json({ error: err }, 400);
+    set("brand", body.brand.trim());
+  }
+  if (typeof body.description === "string") {
+    const err = textError("Description", body.description.trim(), LIMITS.description);
+    if (err) return c.json({ error: err }, 400);
+    set("description", body.description.trim());
+  }
   if (body.categoryId === null) {
     set("category_id", null);
   } else if (typeof body.categoryId === "string") {
+    if (!isUuid(body.categoryId)) return c.json({ error: "categoryId is invalid" }, 400);
     const { rows } = await query("SELECT 1 FROM shop_categories WHERE id = $1 AND shop_id = $2", [
       body.categoryId,
       shopId,
@@ -464,18 +519,24 @@ shops.patch("/:id/items/:itemId", async (c) => {
     set("category_id", body.categoryId);
   }
   if (body.priceInPaise !== undefined) {
-    const price = Number(body.priceInPaise);
-    if (!Number.isFinite(price) || price < 0) {
-      return c.json({ error: "priceInPaise must be a non-negative number" }, 400);
+    if (!isIntInRange(body.priceInPaise, 0, LIMITS.maxPricePaise)) {
+      return c.json({ error: "Price must be between ₹0 and ₹10,00,000" }, 400);
     }
-    set("price_paise", price);
+    set("price_paise", body.priceInPaise);
   }
-  if (typeof body.imageUrl === "string" || body.imageUrl === null) set("image_url", body.imageUrl);
+  if (body.imageUrl === null || body.imageUrl === "") {
+    set("image_url", null);
+  } else if (typeof body.imageUrl === "string") {
+    if (!isOwnImageUrl(shopId, body.imageUrl)) {
+      return c.json({ error: "imageUrl must be a photo uploaded through Babuki" }, 400);
+    }
+    set("image_url", body.imageUrl);
+  }
   if (typeof body.isAvailable === "boolean") set("is_available", body.isAvailable);
   if (body.stockQuantity !== undefined) {
-    const stock = body.stockQuantity === null ? null : Number(body.stockQuantity);
-    if (stock !== null && (!Number.isFinite(stock) || stock < 0)) {
-      return c.json({ error: "stockQuantity must be a non-negative number or null" }, 400);
+    const stock = body.stockQuantity;
+    if (stock !== null && !isIntInRange(stock, 0, LIMITS.maxStock)) {
+      return c.json({ error: "Stock must be a whole number from 0 to 999999, or left untracked" }, 400);
     }
     set("stock_quantity", stock);
   }
@@ -499,6 +560,7 @@ shops.delete("/:id/items/:itemId", async (c) => {
   if (!phone) return c.json({ error: "Not authenticated" }, 401);
   if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
 
+  if (!isUuid(itemId)) return c.json({ error: "Item not found" }, 404);
   const { rowCount } = await query("DELETE FROM shop_items WHERE id = $1 AND shop_id = $2", [itemId, shopId]);
   if (rowCount === 0) return c.json({ error: "Item not found" }, 404);
   return c.json({ ok: true });

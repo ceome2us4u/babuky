@@ -116,11 +116,11 @@ export default function TermsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Client / vendor name</Label>
-              <Input placeholder="Full legal name" disabled />
+              <Input placeholder="Your full legal name" disabled />
             </div>
             <div className="space-y-2">
               <Label>Aadhaar / OTP verification</Label>
-              <Input placeholder="XXXX-XXXX-1234" disabled />
+              <Input placeholder="Your Aadhaar / OTP reference" disabled />
             </div>
           </div>
           <Button disabled>Sign agreement — coming soon</Button>

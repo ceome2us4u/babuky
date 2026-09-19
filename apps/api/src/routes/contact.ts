@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { EMAIL_RE, LIMITS, NAME_RE, str, textError } from "../lib/validation.js";
 
 export const contact = new Hono();
 
@@ -8,11 +9,28 @@ export const contact = new Hono();
 contact.post("/", async (c) => {
   const body = await c.req.json().catch(() => null);
 
-  if (!body || typeof body.name !== "string" || typeof body.email !== "string" || typeof body.message !== "string") {
+  const name = str(body?.name);
+  const email = str(body?.email);
+  const message = str(body?.message);
+
+  if (!name || !email || !message) {
     return c.json({ error: "name, email, and message are required" }, 400);
   }
-  if (!body.name.trim() || !body.email.trim() || !body.message.trim()) {
-    return c.json({ error: "name, email, and message cannot be empty" }, 400);
+  if (!NAME_RE.test(name)) {
+    return c.json({ error: "Name can only contain letters, spaces and . ' -" }, 400);
+  }
+  if (!EMAIL_RE.test(email)) {
+    return c.json({ error: "email is invalid" }, 400);
+  }
+  if (message.length < 5) {
+    return c.json({ error: "message is too short" }, 400);
+  }
+  const tooLong =
+    textError("Name", name, LIMITS.fullName) ??
+    textError("Email", email, LIMITS.email) ??
+    textError("Message", message, LIMITS.message);
+  if (tooLong) {
+    return c.json({ error: tooLong }, 400);
   }
 
   return c.json({ status: "received", detail: "TODO: email delivery is not wired up yet." }, 202);

@@ -13,6 +13,7 @@ import { INDUSTRIES, BASE } from "@/components/shops/MerchantFlow";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { buildUpiLink, inr } from "@/lib/upi";
+import { LIMITS } from "@/lib/validate";
 
 type NearbyShop = {
   id: string;
@@ -152,6 +153,8 @@ export function BuyerFlow() {
           <Input
             className="pl-9"
             placeholder="Search shops near you"
+            aria-label="Search shops near you"
+            maxLength={LIMITS.search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />

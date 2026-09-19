@@ -7,7 +7,9 @@ import { BadgeCheck, Loader2, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldError } from "@/components/ui/field-error";
 import { apiPost } from "@/lib/api";
+import { LIMITS, UPI_RE, upiError, upiInput } from "@/lib/validate";
 
 /**
  * Direct Order shops: collect the vendor's UPI ID (VPA), have Razorpay verify
@@ -93,18 +95,22 @@ export function UpiSetup({
           <Input
             id="upi-id"
             value={upiId}
+            maxLength={LIMITS.upi}
             onChange={(e) => {
-              setUpiId(e.target.value);
+              setUpiId(upiInput(e.target.value));
               setCandidate(null);
             }}
-            placeholder="yourshop@okhdfcbank"
+            onKeyDown={(e) => e.key === "Enter" && UPI_RE.test(upiId) && !busy && void validate()}
+            placeholder="Your UPI ID"
             autoCapitalize="none"
             autoCorrect="off"
+            spellCheck={false}
           />
-          <Button variant="outline" disabled={busy || upiId.trim().length < 5} onClick={() => void validate()}>
+          <Button variant="outline" disabled={busy || !UPI_RE.test(upiId)} onClick={() => void validate()}>
             {busy && !candidate ? <Loader2 className="size-4 animate-spin" /> : null} Verify
           </Button>
         </div>
+        <FieldError message={upiError(upiId)} />
       </div>
       {candidate && (
         <div className="rounded-md border border-gold/40 bg-secondary/40 p-4">

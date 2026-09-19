@@ -11,6 +11,7 @@ import { ItemDialog } from "@/components/dashboard/ItemDialog";
 import { apiFetch, apiPost } from "@/lib/api";
 import type { StoreItem } from "@/lib/store-api";
 import { inr } from "@/lib/upi";
+import { LIMITS } from "@/lib/validate";
 
 export type Category = { id: string; name: string; sort_order: number };
 
@@ -127,6 +128,8 @@ export function CatalogManager({ shopId }: { shopId: string }) {
                 key={c.id}
                 autoFocus
                 className="h-9 w-44"
+                maxLength={LIMITS.category}
+                aria-label="Category name"
                 value={renaming.name}
                 onChange={(e) => setRenaming({ id: c.id, name: e.target.value })}
                 onBlur={() => void saveRename()}
@@ -162,9 +165,10 @@ export function CatalogManager({ shopId }: { shopId: string }) {
         </div>
         <div className="mt-4 flex max-w-sm gap-2">
           <Input
-            placeholder="New category, e.g. Cakes"
+            placeholder="New category name"
+            aria-label="New category name"
             value={newCategory}
-            maxLength={60}
+            maxLength={LIMITS.category}
             onChange={(e) => setNewCategory(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void addCategory()}
           />

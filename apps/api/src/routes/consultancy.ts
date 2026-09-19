@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { query } from "../lib/db.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
 import { createOrder } from "../lib/razorpay.js";
+import { EMAIL_RE, LIMITS, NAME_RE, isIntInRange, str, textError } from "../lib/validation.js";
 
 export const consultancy = new Hono();
 
@@ -28,13 +29,32 @@ consultancy.post("/leads", async (c) => {
 
   const body = await c.req.json().catch(() => null);
   const selectedItems: CartItem[] = Array.isArray(body?.selectedItems) ? body.selectedItems : [];
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const email = typeof body?.email === "string" ? body.email.trim() : "";
-  const description = typeof body?.description === "string" ? body.description.trim() : "";
+  const name = str(body?.name);
+  const email = str(body?.email);
+  const description = str(body?.description);
 
   if (!name) return c.json({ error: "name is required" }, 400);
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ error: "email is invalid" }, 400);
+  if (!NAME_RE.test(name)) return c.json({ error: "Name can only contain letters, spaces and . ' -" }, 400);
+  if (email && !EMAIL_RE.test(email)) return c.json({ error: "email is invalid" }, 400);
+  const tooLong =
+    textError("Name", name, LIMITS.fullName) ??
+    textError("Email", email, LIMITS.email) ??
+    textError("Description", description, LIMITS.projectDescription);
+  if (tooLong) return c.json({ error: tooLong }, 400);
   if (selectedItems.length === 0) return c.json({ error: "selectedItems is required" }, 400);
+  // Bounds on what the client says it selected. (The estimator's price list
+  // lives in the browser today, so the stored budget is the client's figure —
+  // a rough baseline for discovery, not a billed amount.)
+  const validItem = (i: unknown): i is CartItem =>
+    !!i &&
+    typeof (i as CartItem).id === "string" &&
+    (i as CartItem).id.length <= 20 &&
+    isIntInRange((i as CartItem).low, 0, 10_000_000) &&
+    isIntInRange((i as CartItem).high, 0, 10_000_000) &&
+    (i as CartItem).low <= (i as CartItem).high;
+  if (selectedItems.length > LIMITS.maxLeadItems || !selectedItems.every(validItem)) {
+    return c.json({ error: "selectedItems is invalid" }, 400);
+  }
 
   const budgetLow = selectedItems.reduce((sum, item) => sum + Number(item.low || 0), 0);
   const budgetHigh = selectedItems.reduce((sum, item) => sum + Number(item.high || 0), 0);

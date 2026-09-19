@@ -5,6 +5,7 @@ import { query } from "../lib/db.js";
 import { createSession, destroySession, SESSION_COOKIE, SESSION_TTL_SECONDS } from "../lib/session.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
 import { LEAD_SOURCES } from "../lib/constants.js";
+import { EMAIL_RE, LIMITS, NAME_RE, PHONE_RE, str, textError } from "../lib/validation.js";
 
 export const auth = new Hono();
 
@@ -14,8 +15,8 @@ auth.post("/otp/send", async (c) => {
   const leadSource = body?.leadSource;
   const consent = body?.consent === true;
 
-  if (!/^\d{10}$/.test(phone)) {
-    return c.json({ error: "phone must be a 10-digit mobile number" }, 400);
+  if (!PHONE_RE.test(phone)) {
+    return c.json({ error: "Enter a valid 10-digit mobile number (starts with 6, 7, 8 or 9)" }, 400);
   }
   if (!LEAD_SOURCES.includes(leadSource)) {
     return c.json({ error: "leadSource is invalid" }, 400);
@@ -40,8 +41,8 @@ auth.post("/otp/verify", async (c) => {
   const leadSource = body?.leadSource;
   const consent = body?.consent === true;
 
-  if (!/^\d{10}$/.test(phoneDigits) || !/^\d{4,6}$/.test(otp)) {
-    return c.json({ error: "phone and otp are required" }, 400);
+  if (!PHONE_RE.test(phoneDigits) || !/^\d{4,6}$/.test(otp)) {
+    return c.json({ error: "A valid mobile number and the OTP are required" }, 400);
   }
   if (!LEAD_SOURCES.includes(leadSource)) {
     return c.json({ error: "leadSource is invalid" }, 400);
@@ -95,19 +96,22 @@ auth.post("/profile", async (c) => {
   }
 
   const body = await c.req.json().catch(() => null);
-  const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
-  const email = typeof body?.email === "string" ? body.email.trim() : "";
+  const fullName = str(body?.fullName);
+  const email = str(body?.email);
   const accountType = body?.accountType;
-  const businessName = typeof body?.businessName === "string" ? body.businessName.trim() : "";
-  const city = typeof body?.city === "string" ? body.city.trim() : "";
+  const businessName = str(body?.businessName);
+  const city = str(body?.city);
 
   if (!fullName) {
     return c.json({ error: "fullName is required" }, 400);
   }
+  if (!NAME_RE.test(fullName)) {
+    return c.json({ error: "Name can only contain letters, spaces and . ' -" }, 400);
+  }
   if (accountType !== "business" && accountType !== "individual") {
     return c.json({ error: "accountType must be business or individual" }, 400);
   }
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (email && !EMAIL_RE.test(email)) {
     return c.json({ error: "email is invalid" }, 400);
   }
   if (accountType === "business" && !businessName) {
@@ -115,6 +119,14 @@ auth.post("/profile", async (c) => {
   }
   if (!city) {
     return c.json({ error: "city is required" }, 400);
+  }
+  const tooLong =
+    textError("Name", fullName, LIMITS.fullName) ??
+    textError("Email", email, LIMITS.email) ??
+    textError("Business name", businessName, LIMITS.business) ??
+    textError("City", city, LIMITS.city);
+  if (tooLong) {
+    return c.json({ error: tooLong }, 400);
   }
 
   await query(

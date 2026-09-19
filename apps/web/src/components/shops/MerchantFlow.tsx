@@ -10,7 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LocationPicker } from "@/components/shops/MapLazy";
 import { UpiSetup } from "@/components/shops/UpiSetup";
+import { FieldError } from "@/components/ui/field-error";
 import { useAuth } from "@/lib/auth";
+import { LIMITS, nameError, slugError, slugInput } from "@/lib/validate";
 import { ApiError, apiFetch, apiPost } from "@/lib/api";
 import { openRazorpayCheckout } from "@/lib/razorpay";
 import { siteConfig } from "@/config/site";
@@ -58,7 +60,7 @@ export function MerchantFlow() {
       setAvailable(null);
       return;
     }
-    if (slug.length < 3) {
+    if (slugError(slug)) {
       setChecking(false);
       setAvailable(false);
       return;
@@ -203,8 +205,13 @@ export function MerchantFlow() {
           <div className="flex items-center gap-2">
             <Input
               value={slug}
-              placeholder="yourshopname"
-              onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 24))}
+              maxLength={24}
+              placeholder="Your shop name"
+              aria-label="Your shop's web address"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(e) => setSlug(slugInput(e.target.value))}
             />
             <span className="whitespace-nowrap text-sm text-muted-foreground">.{siteConfig.domain}</span>
           </div>
@@ -221,7 +228,8 @@ export function MerchantFlow() {
             )}
             {!checking && available === false && (
               <span className="flex items-center gap-2 text-destructive">
-                <X className="size-4" /> Not available — try another name (min 3 characters)
+                <X className="size-4" />{" "}
+                {slugError(slug) ?? "Not available — try another name"}
               </span>
             )}
           </div>
@@ -237,11 +245,24 @@ export function MerchantFlow() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Owner name</Label>
-              <Input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Your full name" />
+              <Input
+                value={ownerName}
+                maxLength={LIMITS.fullName}
+                autoComplete="name"
+                onChange={(e) => setOwnerName(e.target.value)}
+                placeholder="Your full name"
+              />
+              <FieldError message={nameError(ownerName)} />
             </div>
             <div className="space-y-2">
               <Label>Store name</Label>
-              <Input value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="Sharma Sweets" />
+              <Input
+                value={shopName}
+                maxLength={LIMITS.shopName}
+                autoComplete="organization"
+                onChange={(e) => setShopName(e.target.value)}
+                placeholder="Your store name"
+              />
             </div>
             <div className="space-y-2">
               <Label>Verified contact</Label>
@@ -289,7 +310,10 @@ export function MerchantFlow() {
             <Button variant="outline" onClick={() => setStep(1)}>
               Back
             </Button>
-            <Button disabled={!shopName.trim() || !ownerName.trim()} onClick={() => setStep(3)}>
+            <Button
+              disabled={shopName.trim().length < 2 || ownerName.trim().length < 2 || !!nameError(ownerName)}
+              onClick={() => setStep(3)}
+            >
               Continue
             </Button>
           </div>
