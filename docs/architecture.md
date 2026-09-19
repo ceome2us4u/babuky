@@ -129,7 +129,13 @@ database is exactly what's being avoided:
   a trust anchor, not a Home-owned resource. Nothing else is shared.
 - **Named exception**: MSG91 (existing DLT registration) and Razorpay are
   the same company vendor accounts as Home's other product — Babuki uses
-  its own Plan IDs / OTP template inside those accounts, not new signups.
+  its own Razorpay Plan IDs inside those accounts, not new signups.
+  **Temporary: the OTP SMS template is Home's too** (MSG91 template
+  `6a9ab17d99a12dbca202c3c4`, "##number## is your Me2Us4U verification code…",
+  under Home's DLT header) until Babuki has its own DLT header + template — then
+  only `MSG91_OTP_TEMPLATE_ID` (and `MSG91_OTP_VAR` if the merge variable isn't
+  `number`) changes; nothing else in the code does. The template id is a plain
+  non-secret value, like Home's own `deploy.sh`.
   These are external SaaS accounts, not AWS infra/DB/code. Note the two
   are NOT interchangeable the same way: `MSG91_AUTH_KEY` and
   `RAZORPAY_KEY_SECRET` are genuinely account-wide credentials (safe to
@@ -218,14 +224,23 @@ could have been anything).
   phone number — when creating an account and for "forgot password" — never
   for everyday login.
   - `POST /auth/otp/send {phone, purpose: "signup"|"reset", …}` and
-    `POST /auth/otp/verify {phone, otp, purpose}` — MSG91-backed; OTPs are 5
-    digits (`OTP_LENGTH` in `lib/msg91.ts`, mirrored by the web's
-    `lib/validate.ts`; `otp_length` is sent to MSG91 explicitly because its
-    default is 6). **Verify does not sign anyone in**: it returns a signed,
-    10-minute `proof` (`lib/otp-proof.ts`, HMAC keyed off `SESSION_SECRET`,
-    bound to phone + purpose) because MSG91 accepts a code only once. Signup
-    send is refused (409) for a number that already has a password; reset send
-    answers identically for numbers with and without an account.
+    `POST /auth/otp/verify {phone, otp, purpose}`. **Babuki generates and
+    checks the codes itself** (`lib/msg91.ts`); MSG91 only delivers them, through
+    its **Flow API** (`POST /api/v5/flow`, template merge variable `number` —
+    the same way Home does it; the `/otp` endpoint can't drive that template).
+    Codes are 5 digits (`OTP_LENGTH`, mirrored by the web's `lib/validate.ts`),
+    stored only as a keyed hash in `otp_codes` (one live code per phone +
+    purpose; a signup code can't be used to reset), valid 10 minutes,
+    **single use**, and locked after 5 wrong tries (a fresh code unlocks).
+    Limits, because each real SMS costs money: a phone can ask for one code per
+    30 s and 5 an hour (`otp_sends`, survives restarts), one IP for 10 an hour,
+    all answered with a plain 429 message; a failed MSG91 send deletes the
+    unusable code and isn't counted. Forgot-password sends no SMS at all for a
+    number without an account. **Verify does not sign anyone in**: it returns a
+    signed, 10-minute `proof` (`lib/otp-proof.ts`, HMAC keyed off
+    `SESSION_SECRET`, bound to phone + purpose). Signup send is refused (409)
+    for a number that already has a password; reset send answers identically
+    for numbers with and without an account.
   - `POST /auth/signup {proof, password, consent, leadSource}` — creates the
     account (or sets the first password on a pre-password one) and signs in.
     Refuses (409) if the number already has a password, so a proof can't
@@ -521,8 +536,11 @@ Terraform would then manage.
   run against production needs a working OTP login (waiting on the DLT
   template).
 - **Needs real credentials from the owner** (placeholders in Secrets
-  Manager / `.env.example` until then): `MSG91_AUTH_KEY` + a DLT-approved
-  template/sender (until then the box runs in `APP_MODE=test`). LIVE
+  Manager / `.env.example` until then): `MSG91_AUTH_KEY` (set in
+  `babuki/prod/msg91-auth-key`) and the OTP template — currently Home's
+  (`MSG91_OTP_TEMPLATE_ID` default in `scripts/deploy.sh`); real SMS starts when
+  the box is flipped with `scripts/set-app-mode.sh live` (which also switches
+  Razorpay to the LIVE keys — one switch for everything). LIVE
   Razorpay (key secret, webhook secret, plan `plan_TdVzzDQoYIGSj0`) is
   already real. The **TEST** Razorpay set (`babuki/prod/razorpay-*-test`:
   key id, key secret, webhook secret, and a ₹500/mo plan created in
