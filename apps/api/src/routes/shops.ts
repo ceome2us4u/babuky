@@ -9,6 +9,8 @@ import { createItemImageUploadUrl } from "../lib/storage.js";
 import { SHOP_MODES } from "../lib/constants.js";
 import { industryFilter, normalizeIndustry } from "../lib/industries.js";
 import { parseRadiusKm } from "../lib/search.js";
+import { findSlugHolder, noPaymentInFlight, releaseDraft } from "../lib/slug-hold.js";
+import { fetchSubscriptionStatus } from "../lib/razorpay.js";
 import { LIMITS, NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
 
 export const shops = new Hono();
@@ -56,8 +58,17 @@ shops.get("/slug-available", async (c) => {
     return c.json({ available: false, reason: "reserved" });
   }
 
-  const { rows } = await query("SELECT 1 FROM shops WHERE slug = $1", [slug]);
-  return c.json({ available: rows.length === 0 });
+  const holder = await findSlugHolder(slug);
+  if (!holder) return c.json({ available: true });
+
+  // Your own unfinished shop: you can carry on with the name (not "taken").
+  const phone = await getSessionUserPhone(c);
+  if (phone && holder.owner_phone === phone && holder.status === "draft") {
+    return c.json({ available: true, yours: true });
+  }
+  // An unpaid, empty draft only holds its address for a couple of hours (lib/slug-hold.ts).
+  if (holder.abandoned) return c.json({ available: true });
+  return c.json({ available: false, reason: "taken" });
 });
 
 // The signed-in vendor's own shops, with lifecycle state: 'draft' until the
@@ -168,6 +179,25 @@ shops.post("/", async (c) => {
   // Direct Order mode shops start unverified — UPI VPA collection/
   // verification is its own follow-up step (POST /:id/upi/validate then
   // /:id/upi/confirm), not part of initial shop creation.
+
+  const holder = await findSlugHolder(slug);
+  if (holder) {
+    if (holder.owner_phone === phone && holder.status === "draft") {
+      // Backed out at payment and came back: carry on with the same shop instead of "already taken".
+      const { rows } = await query(
+        `UPDATE shops SET name = $2, owner_name = $3, industry = $4, mode = $5,
+                geog = ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography, address_text = $8
+          WHERE id = $1 AND status = 'draft' RETURNING id, slug`,
+        [holder.id, name, ownerName, industry, mode, lng, lat, addressText],
+      );
+      return c.json({ shop: rows[0], resumed: true });
+    }
+    if (holder.abandoned && (await noPaymentInFlight(holder.id))) {
+      await releaseDraft(holder.id);
+    } else {
+      return c.json({ error: "slug is already taken" }, 409);
+    }
+  }
 
   try {
     const { rows } = await query(
@@ -317,6 +347,30 @@ shops.get("/nearby", async (c) => {
   return c.json({ shops: rows, truncated: rows.length >= 100 });
 });
 
+// A vendor can throw away a shop they never paid for, which frees its web address.
+shops.delete("/:id", async (c) => {
+  const shopId = c.req.param("id");
+  const phone = await getSessionUserPhone(c);
+  if (!phone) return c.json({ error: "Not authenticated" }, 401);
+  if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
+
+  const { rows } = await query<{ status: string; paid: boolean }>(
+    `SELECT s.status::text AS status,
+            EXISTS (SELECT 1 FROM shop_subscriptions x WHERE x.shop_id = s.id AND x.status <> 'pending') AS paid
+       FROM shops s WHERE s.id = $1`,
+    [shopId],
+  );
+  if (rows[0].status !== "draft" || rows[0].paid) {
+    return c.json({ error: "Only a shop that was never published can be deleted here." }, 409);
+  }
+  // A payment might have just gone through with the confirmation still on its way.
+  if (!(await noPaymentInFlight(shopId))) {
+    return c.json({ error: "A payment for this shop may still be going through. Please check again in a few minutes." }, 409);
+  }
+  await releaseDraft(shopId);
+  return c.json({ ok: true });
+});
+
 shops.post("/:id/subscribe", async (c) => {
   const shopId = c.req.param("id");
   const phone = await getSessionUserPhone(c);
@@ -327,6 +381,27 @@ shops.post("/:id/subscribe", async (c) => {
   }
 
   try {
+    // Backed out and came back? Reuse the subscription that is still waiting for a
+    // payment instead of piling up a new one at Razorpay on every attempt.
+    const { rows: open } = await query<{ razorpay_subscription_id: string; razorpay_plan_id: string }>(
+      `SELECT razorpay_subscription_id, razorpay_plan_id FROM shop_subscriptions
+        WHERE shop_id = $1 AND status = 'pending' AND razorpay_subscription_id IS NOT NULL
+        ORDER BY created_at DESC LIMIT 1`,
+      [shopId],
+    );
+    if (open[0]) {
+      try {
+        if ((await fetchSubscriptionStatus(open[0].razorpay_subscription_id)) === "created") {
+          return c.json({
+            subscription: { id: open[0].razorpay_subscription_id, plan_id: open[0].razorpay_plan_id },
+            keyId: razorpayKeyId(),
+          });
+        }
+      } catch {
+        /* can't tell - just start a fresh one below */
+      }
+    }
+
     const subscription = await createVendorSubscription(shopId);
     await query(
       `INSERT INTO shop_subscriptions (shop_id, razorpay_subscription_id, razorpay_plan_id, status)

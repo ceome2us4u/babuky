@@ -88,6 +88,29 @@ export async function validateVpa(vpa: string): Promise<{ valid: boolean; custom
   return { valid: data.success === true, customerName: data.customer_name ?? null };
 }
 
+const razorpayAuth = () =>
+  `Basic ${Buffer.from(`${razorpayKeyId()}:${razorpayKeySecret()}`).toString("base64")}`;
+
+/** A subscription's current state at Razorpay (created, authenticated, active, cancelled, ...). */
+export async function fetchSubscriptionStatus(subscriptionId: string): Promise<string> {
+  const res = await fetch(`https://api.razorpay.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    headers: { Authorization: razorpayAuth() },
+  });
+  const data = (await res.json().catch(() => ({}))) as { status?: string };
+  if (!res.ok || !data.status) throw new Error(`Razorpay subscription lookup failed: ${res.status}`);
+  return data.status;
+}
+
+/** Cancels a subscription immediately (used when an unpaid draft shop is released). */
+export async function cancelSubscription(subscriptionId: string): Promise<void> {
+  const res = await fetch(`https://api.razorpay.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
+    method: "POST",
+    headers: { Authorization: razorpayAuth(), "Content-Type": "application/json" },
+    body: JSON.stringify({ cancel_at_cycle_end: 0 }),
+  });
+  if (!res.ok) throw new Error(`Razorpay cancel failed: ${res.status}`);
+}
+
 // Verifies an inbound Razorpay webhook payload against its signature header.
 // Rejects tampered/forged payloads before we act on them. Uses the active
 // mode's webhook secret; if that isn't configured, nothing can verify.

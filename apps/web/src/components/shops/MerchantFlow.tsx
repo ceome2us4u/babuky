@@ -32,6 +32,8 @@ export function MerchantFlow() {
   const [slug, setSlug] = useState("");
   const [checking, setChecking] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
+  // Why it is (un)available: the person's own unfinished shop, a reserved name, or someone else's.
+  const [availNote, setAvailNote] = useState<"yours" | "reserved" | "taken" | null>(null);
 
   const [shopName, setShopName] = useState("");
   const [ownerName, setOwnerName] = useState("");
@@ -72,8 +74,13 @@ export function MerchantFlow() {
     let stale = false;
     const id = setTimeout(async () => {
       try {
-        const res = await apiFetch<{ available: boolean }>(`/shops/slug-available?slug=${encodeURIComponent(slug)}`);
-        if (!stale) setAvailable(res.available);
+        const res = await apiFetch<{ available: boolean; yours?: boolean; reason?: string }>(
+          `/shops/slug-available?slug=${encodeURIComponent(slug)}`,
+        );
+        if (!stale) {
+          setAvailable(res.available);
+          setAvailNote(res.yours ? "yours" : res.reason === "reserved" ? "reserved" : res.available ? null : "taken");
+        }
       } catch {
         if (!stale) setAvailable(null);
       } finally {
@@ -242,13 +249,17 @@ export function MerchantFlow() {
             )}
             {!checking && available === true && (
               <span className="flex items-center gap-2 text-gold">
-                <Check className="size-4" /> {slug}.{siteConfig.domain} is available
+                <Check className="size-4" />{" "}
+                {availNote === "yours"
+                  ? `${slug}.${siteConfig.domain} is your unfinished shop — carry on with it`
+                  : `${slug}.${siteConfig.domain} is available`}
               </span>
             )}
             {!checking && available === false && (
               <span className="flex items-center gap-2 text-destructive">
                 <X className="size-4" />{" "}
-                {slugError(slug) ?? "Not available — try another name"}
+                {slugError(slug) ??
+                  (availNote === "reserved" ? "That name is reserved — try another name" : "Already taken — try another name")}
               </span>
             )}
           </div>

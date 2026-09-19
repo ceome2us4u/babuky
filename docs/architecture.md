@@ -266,6 +266,24 @@ could have been anything).
   signed-in vendor's shops + lifecycle/subscription/UPI state),
   `/shops/slug-available`, `/shops/by-slug/:slug`
   (**public** — storefront lookup, only exposes UPI fields once verified),
+  **Web addresses and unpaid drafts** (`lib/slug-hold.ts`): a shop is created as
+  a `draft` when the vendor reaches the payment step, so someone who backs out
+  used to keep the address forever (blocking everyone, even themselves). Now:
+  the owner can always resume their own draft (`POST /shops` with the same slug
+  updates it and returns `resumed: true`; `/slug-available` answers
+  `yours: true`; `/subscribe` reuses a still-`created` Razorpay subscription
+  instead of piling up new ones); an **empty** draft (no items, no categories,
+  no non-pending subscription) older than 2 hours is "abandoned" and its
+  address can be taken — but only after Razorpay confirms none of its
+  subscriptions is authenticated/active (webhooks can lag; any lookup failure
+  means keep it), and the draft's pending subscription is then cancelled; a
+  draft with catalog work is never released automatically; active and
+  suspended shops always keep their address. `DELETE /shops/:id` lets a vendor
+  delete their own never-published shop (same in-flight-payment check); the
+  dashboard has a two-step "Delete this unfinished shop". `/slug-available`
+  reports `reason: "reserved" | "taken"` so the form can say which.
+  Reserved names: www, api, admin, app, mail, ftp, babuki, babuky, shop, shops,
+  estimator, terms, contact, get-started, services.
   `/shops/nearby` (the shop finder: PostGIS `ST_Distance` ordering, and
   `ST_DWithin` when a distance is given — `radiusKm` 1–200 (`lib/search.ts`) or
   `any` for **no distance limit**, i.e. anywhere in India, nearest first; the
