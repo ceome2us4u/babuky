@@ -22,6 +22,8 @@ import { apiFetch, apiPost } from "@/lib/api";
  */
 export type LeadSource = "MERCHANT" | "LOCAL_BUYER" | "CONSULTANCY_LEAD";
 
+export type OtpPurpose = "signup" | "reset";
+
 export type UserProfile = {
   fullName: string;
   email: string;
@@ -69,12 +71,21 @@ type AuthContextValue = {
   /** Tags the signed-in user with a lead source (the API gates endpoints on it). */
   ensureLeadSource: (source: LeadSource) => Promise<void>;
   closeModal: () => void;
-  /** In the API's APP_MODE=test no SMS is sent and `devOtpHint` is the code to enter. */
-  sendOtp: (phone: string, consent: boolean) => Promise<{ devOtpHint?: string }>;
-  /** Verifies the OTP; resolves to whether the user still has to fill in a profile. */
-  verifyOtp: (phone: string, otp: string, consent: boolean) => Promise<{ needsProfile: boolean }>;
+  /**
+   * OTP only proves phone ownership: at signup and for "forgot password".
+   * In the API's APP_MODE=test no SMS is sent and `devOtpHint` is the code to enter.
+   */
+  sendOtp: (phone: string, purpose: OtpPurpose, consent?: boolean) => Promise<{ devOtpHint?: string }>;
+  /** Checks the OTP; resolves to a short-lived proof to pass to signup / resetPassword. */
+  verifyOtp: (phone: string, otp: string, purpose: OtpPurpose) => Promise<string>;
+  /** Everyday login. Resolves to whether the user still has to fill in a profile. */
+  login: (phone: string, password: string) => Promise<{ needsProfile: boolean }>;
+  /** Creates the account (or first password) after a signup OTP check, and signs in. */
+  signup: (proof: string, password: string, consent: boolean) => Promise<{ needsProfile: boolean }>;
+  /** Sets a new password after a reset OTP check, and signs in. */
+  resetPassword: (proof: string, password: string) => Promise<{ needsProfile: boolean }>;
   completeProfile: (profile: UserProfile) => Promise<void>;
-  /** Called when OTP verify found an existing profile — no profile step needed. */
+  /** Called once the user is signed in and has a profile — closes the modal, runs the pending action. */
   finishLogin: () => Promise<void>;
   logout: () => Promise<void>;
   pendingSource: LeadSource;
@@ -150,29 +161,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const sendOtp = useCallback(
-    async (phone: string, consent: boolean) => {
+    async (phone: string, purpose: OtpPurpose, consent?: boolean) => {
       const res = await apiPost<{ devOtpHint?: string }>("/auth/otp/send", {
         phone,
+        purpose,
         leadSource: pendingSource,
-        consent,
+        consent: consent === true,
       });
       return { devOtpHint: res.devOtpHint };
     },
     [pendingSource],
   );
 
-  const verifyOtp = useCallback(
-    async (phone: string, otp: string, consent: boolean) => {
-      const res = await apiPost<{ hasProfile: boolean }>("/auth/otp/verify", {
+  const verifyOtp = useCallback(async (phone: string, otp: string, purpose: OtpPurpose) => {
+    const res = await apiPost<{ proof: string }>("/auth/otp/verify", { phone, otp, purpose });
+    return res.proof;
+  }, []);
+
+  const login = useCallback(
+    async (phone: string, password: string) => {
+      const res = await apiPost<{ hasProfile: boolean }>("/auth/login", {
         phone,
-        otp,
+        password,
         leadSource: pendingSource,
-        consent,
       });
       return { needsProfile: !res.hasProfile };
     },
     [pendingSource],
   );
+
+  const signup = useCallback(
+    async (proof: string, password: string, consent: boolean) => {
+      const res = await apiPost<{ hasProfile: boolean }>("/auth/signup", {
+        proof,
+        password,
+        consent,
+        leadSource: pendingSource,
+      });
+      return { needsProfile: !res.hasProfile };
+    },
+    [pendingSource],
+  );
+
+  const resetPassword = useCallback(async (proof: string, password: string) => {
+    const res = await apiPost<{ hasProfile: boolean }>("/auth/password/reset", { proof, password });
+    return { needsProfile: !res.hasProfile };
+  }, []);
 
   const finishLogin = useCallback(async () => {
     await refresh();
@@ -202,13 +236,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       closeModal: () => setModalOpen(false),
       sendOtp,
       verifyOtp,
+      login,
+      signup,
+      resetPassword,
       completeProfile,
       finishLogin,
       logout,
       pendingSource,
       modalOpen,
     }),
-    [user, loading, requestLogin, ensureLeadSource, sendOtp, verifyOtp, completeProfile, finishLogin, logout, pendingSource, modalOpen],
+    [user, loading, requestLogin, ensureLeadSource, sendOtp, verifyOtp, login, signup, resetPassword, completeProfile, finishLogin, logout, pendingSource, modalOpen],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

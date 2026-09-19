@@ -74,7 +74,7 @@ babuky/
                              (api.babuki.com), credentials included so the
                              session cookie rides along. No server logic, no
                              /api routes, in this app.
-      src/lib/auth.tsx      AuthProvider: /auth/me on load, OTP modal flow
+      src/lib/auth.tsx      AuthProvider: /auth/me on load, login / signup / reset modal flow
       src/lib/razorpay.ts   Checkout.js loader (publishable key id only)
       src/app/globals.css   the Lovable mock's burgundy/gold tokens, verbatim
       src/components/ui/    the mock's own shadcn components, copied verbatim
@@ -182,7 +182,9 @@ could have been anything).
 ## Data model (`apps/api/db/migrations/`)
 
 - `users` / `user_lead_sources` (`MERCHANT`/`LOCAL_BUYER`/`CONSULTANCY_LEAD`)
-  / `user_profiles` / `sessions` — phone-based OTP auth.
+  / `user_profiles` / `sessions` — phone + password login; an OTP only proves
+  the phone. `users` carries `password_hash` (scrypt, NULL for accounts that
+  pre-date passwords), `password_set_at`, `failed_login_count`, `locked_until`.
 - `shops` (slug, industry, mode, PostGIS `geog` point + GIST index, status,
   `upi_id`/`verified_merchant_name`/`is_upi_verified` — see the UPI
   checkout section above) / `shop_subscriptions` (locked to an immutable
@@ -193,7 +195,11 @@ could have been anything).
   number is vendor-set and manual; nothing auto-decrements, Babuki never
   sees the actual buyer/vendor transaction).
 - `consultancy_leads` (ticket ref, selected items, budget range, Razorpay
-  order id, deposit status).
+  order id, deposit status; plus `status` `new`/`contacted`/`quoted`/`won`/
+  `lost` and `admin_notes` for follow-up).
+- `contact_messages` (the Contact form's messages — stored, no longer
+  dropped) and `admin_users` / `admin_sessions` / `admin_actions` (see
+  "Admin console").
 - **Industries** (`shops.industry` is plain text; lists in
   `apps/api/src/lib/industries.ts` ↔ `apps/web/src/lib/industries.ts`, keep in
   sync): ~75 kinds of business in 11 groups (Food & Drink, Grocery & Daily
@@ -208,15 +214,39 @@ could have been anything).
 
 ## API surface (`apps/api/src/routes/`, mounted on `api.babuki.com`)
 
-- `/auth/otp/{send,verify}`, `/auth/{profile,me,logout}` — MSG91-backed;
-  OTPs are 5 digits (`OTP_LENGTH` in `lib/msg91.ts`, mirrored by
-  `OTP_LENGTH` in the web's `lib/validate.ts`; `otp_length` is sent to MSG91
-  explicitly because its default is 6). In `APP_MODE=test` no SMS is sent —
-  see "Modes: TEST / LIVE".
-  `POST /auth/lead-source` adds a lead-source tag to an already-signed-in
-  user (lead sources gate the merchant/buyer/consultancy endpoints, and are
-  otherwise only recorded at OTP verify — without this a buyer could never
-  become a merchant without a fresh OTP).
+- **Auth: phone + password.** The OTP is *only* used to prove ownership of a
+  phone number — when creating an account and for "forgot password" — never
+  for everyday login.
+  - `POST /auth/otp/send {phone, purpose: "signup"|"reset", …}` and
+    `POST /auth/otp/verify {phone, otp, purpose}` — MSG91-backed; OTPs are 5
+    digits (`OTP_LENGTH` in `lib/msg91.ts`, mirrored by the web's
+    `lib/validate.ts`; `otp_length` is sent to MSG91 explicitly because its
+    default is 6). **Verify does not sign anyone in**: it returns a signed,
+    10-minute `proof` (`lib/otp-proof.ts`, HMAC keyed off `SESSION_SECRET`,
+    bound to phone + purpose) because MSG91 accepts a code only once. Signup
+    send is refused (409) for a number that already has a password; reset send
+    answers identically for numbers with and without an account.
+  - `POST /auth/signup {proof, password, consent, leadSource}` — creates the
+    account (or sets the first password on a pre-password one) and signs in.
+    Refuses (409) if the number already has a password, so a proof can't
+    overwrite an existing account. Then the UI's profile step (`/auth/profile`).
+  - `POST /auth/login {phone, password, leadSource?}` — same generic error for
+    "no such number" and "wrong password" (and a burn of equal CPU, so timing
+    doesn't leak either); **5 wrong passwords lock the number for 15 minutes**
+    (even the right password is refused meanwhile; a reset or expiry clears it).
+  - `POST /auth/password/reset {proof, password}` — needs a `reset` proof;
+    single-use (a proof issued before `password_set_at` is rejected); revokes
+    every existing session, then signs in.
+  - `/auth/{profile,me,logout}`. `POST /auth/lead-source` adds a lead-source
+    tag to an already-signed-in user (lead sources gate the
+    merchant/buyer/consultancy endpoints; login tags the active one too).
+  - Password rules (`lib/password.ts` ↔ web `validate.ts`): 8–64 chars, at
+    least one letter and one number, not a very common one, not the user's own
+    phone number. Stored with Node's built-in `scrypt` (`scrypt$N$r$p$salt$hash`,
+    so the cost can be raised later) — no native dependency.
+  - Accounts created before passwords existed simply sign up again with their
+    number (or use Forgot password): both prove the phone by OTP and set one.
+    Their profile and shops are untouched.
 - `/shops` (create — starts as status `draft`), `/shops/mine` (the
   signed-in vendor's shops + lifecycle/subscription/UPI state),
   `/shops/slug-available`, `/shops/by-slug/:slug`
@@ -269,7 +299,7 @@ normal deploy never flips it. One switch drives *everything* mode-dependent:
 
 | | `test` | `live` |
 |---|---|---|
-| **OTP** | no SMS is sent; the fixed code `12345` signs in **any** phone number and is returned to the UI as `devOtpHint` (the login screen shows it) | real MSG91 SMS |
+| **OTP** (signup + forgot-password only) | no SMS is sent; the fixed code `12345` passes for **any** phone number and is returned to the UI as `devOtpHint` (the code screen shows it) | real MSG91 SMS |
 | **Razorpay** | `RAZORPAY_*_TEST` credentials | `RAZORPAY_*_LIVE` credentials |
 | **UPI ID (VPA) check** | **simulated** — Razorpay's sandbox doesn't offer it (with test keys the documented call answers "URL not found" while other endpoints work); `failure@razorpay` fails, any other well-formed VPA passes as `TEST ACCOUNT (name)` | real `POST /v1/payments/validate/vpa` |
 
@@ -304,7 +334,9 @@ real use will be the check; if Razorpay rejects it for the live account, the
 vendor sees the friendly message and the shop keeps working (call/WhatsApp) —
 it does not break checkout.
 
-**Test mode is dangerous by design** — anyone can sign in as anyone — so it is
+**Test mode is dangerous by design** — anyone can pass the phone check for any
+number, so anyone can create an account for, or **reset the password of**, any
+number that has no real owner yet — so it is
 for the period before Babuki has a DLT-approved SMS sender. Flip to `live`
 before real users rely on their accounts; the API logs a loud warning at
 startup while it is on.
@@ -320,6 +352,10 @@ sync.** The rules:
 - **Phone**: exactly 10 digits, first digit 6–9 (Indian mobile). The box is
   `type="tel"`, blocks non-digit keys, and cleans pastes (`+91 98765 43210`
   and `098765 43210` both become the 10-digit number).
+- **Password**: 8–64 characters, at least one letter and one number, not on a
+  short common-passwords list, not the user's phone number. Shown/hidden with an
+  eye toggle (no separate confirm box) and a live checklist on new-password
+  screens; the API returns a plain-language reason for anything it rejects.
 - **Person names** (profile, owner, estimator, contact): letters in any
   script plus spaces and `. ' -` — no digits; max 100.
 - **Email**: format-checked, spaces stripped, max 255. **Subdomain slug**:
@@ -336,6 +372,52 @@ sync.** The rules:
 - **Placeholders describe the field ("Your phone number", "Your email
   address"); they are never sample values** (no `98765 43210`, no
   `you@company.com`).
+
+## Admin console (`babuki.com/admin`)
+
+The founder's internal page: every enquiry with all the inputs the person
+filled in, so nothing depends on someone querying the database. Modelled on
+Home's founder-only admin (one allowlisted email, every change audited).
+
+- **Sections**: Overview (counts, "new" badges, latest activity, recent admin
+  changes) · Software estimates (`consultancy_leads`: name/email the customer
+  gave, phone with Call/WhatsApp, their business note, each thing they picked
+  with its price range — shown by plain-language name from the estimator
+  catalog — total, paid/**not paid yet**, timestamps) · Messages (Contact form)
+  · Shops (every shop-setup input, owner, UPI, subscription, item count) ·
+  Users (profile, what they came for, whether they've set a password). An
+  estimate is stored the moment someone presses "Pay ₹100 & book", so
+  **unpaid ones show up too** — warm leads who stopped at payment.
+- **Follow-up**: status + private notes on estimates and messages
+  (`PATCH /admin/estimates/:id`, `/admin/messages/:id`); each change writes an
+  `admin_actions` row (who, what, from → to).
+- **API** (`routes/admin.ts`, `routes/admin-data.ts`): `POST /admin/login`,
+  `/logout`, `GET /me`, `/overview`, `/estimates`, `/messages`, `/shops`,
+  `/users` (paged, filterable, `q` search with LIKE wildcards escaped).
+- **Auth**: who may sign in is the `ADMIN_EMAILS` allowlist in the API's env
+  (`scripts/deploy.sh`, default `ceo@me2us4u.com`; empty = nobody). The
+  password hash lives in `admin_users` and is set **only** with
+  `bash scripts/set-admin-password.sh <host> [email]` — you type the password
+  in your terminal, it travels over SSH on stdin, is hashed on the box
+  (min 12 chars) and never appears in argv, env, logs or chat; run it again to
+  reset. There is no signup path for admins. Login uses the same scrypt +
+  generic-error + 5-strikes/15-minute lock as customers. A removed allowlist
+  entry revokes its live session immediately.
+- **Separate from customer sessions**: own table (`admin_sessions`, token
+  HMAC'd under an `admin|` label), own cookie (`babuki_admin`, HttpOnly,
+  Secure, **SameSite=Strict**, 12 h), so a customer session can never be an
+  admin session. `adminOriginGuard` additionally refuses any request whose
+  `Origin` isn't `https://babuki.com` / `www` (the API's CORS otherwise trusts
+  every vendor subdomain); `http://localhost` is accepted only in
+  `APP_MODE=test`.
+- **Web**: `apps/web/src/app/admin` + `components/admin/*`; `noindex` and
+  `Disallow: /admin` in robots.txt. The page just reflects the API — the API
+  is the only real gate.
+- **Contact form**: `POST /contact` now stores the message and is rate-limited
+  per IP (5/hour, 40/day; `lib/rate-limit.ts`, keyed on the last
+  `X-Forwarded-For` hop, i.e. the one Nginx appended).
+- **Not built yet**: email/Telegram alerts on new enquiries (needs an SES
+  sender for babuki.com), CSV export, customer confirmation emails.
 
 ## Infrastructure (`infra/terraform/`)
 
