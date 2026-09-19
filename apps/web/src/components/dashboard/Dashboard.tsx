@@ -14,6 +14,11 @@ import { useAuth } from "@/lib/auth";
 import { apiFetch, apiPost } from "@/lib/api";
 import { openRazorpayCheckout } from "@/lib/razorpay";
 import { siteConfig } from "@/config/site";
+import { useFeatures } from "@/lib/features";
+import { DomainCard } from "@/components/dashboard/DomainCard";
+
+/** What the shop's plan costs a month, as shown in buttons and Checkout. */
+const planPrice = (s: { plan: string }) => (s.plan === "premium" ? "₹1,500" : "₹500");
 
 export type MyShop = {
   id: string;
@@ -27,6 +32,10 @@ export type MyShop = {
   verified_merchant_name: string | null;
   is_upi_verified: boolean;
   subscription_status: "pending" | "active" | "past_due" | "cancelled" | null;
+  plan: "standard" | "premium";
+  own_domain: string | null;
+  own_domain_status: string | null;
+  own_domain_grace_until: string | null;
 };
 
 const STATUS_LABEL: Record<MyShop["status"], string> = {
@@ -37,6 +46,7 @@ const STATUS_LABEL: Record<MyShop["status"], string> = {
 
 export function Dashboard() {
   const { user, loading, requestLogin } = useAuth();
+  const { ownDomain } = useFeatures();
   const [shops, setShops] = useState<MyShop[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
@@ -95,7 +105,7 @@ export function Dashboard() {
       await openRazorpayCheckout({
         keyId,
         subscriptionId: subscription.id,
-        description: `${s.slug}.${siteConfig.domain} · ₹500/month`,
+        description: `${s.plan === "premium" && s.own_domain ? s.own_domain : `${s.slug}.${siteConfig.domain}`} · ${planPrice(s)}/month`,
         prefill: { name: user?.profile?.fullName, email: user?.profile?.email, contact: user?.phone },
         onSuccess: () => {
           toast.success("Payment received — publishing your storefront…");
@@ -197,12 +207,16 @@ export function Dashboard() {
           </div>
           <h1 className="mt-3 text-2xl font-black md:text-3xl">{shop.name}</h1>
           <p className="mt-1 font-mono text-sm text-muted-foreground">
-            {shop.slug}.{siteConfig.domain}
+            {shop.own_domain_status === "active" ? shop.own_domain : `${shop.slug}.${siteConfig.domain}`}
           </p>
         </div>
         {shop.status === "active" && (
           <Button asChild variant="outline">
-            <a href={`https://${shop.slug}.${siteConfig.domain}`} target="_blank" rel="noreferrer">
+            <a
+              href={shop.own_domain_status === "active" ? `https://${shop.own_domain}` : `https://${shop.slug}.${siteConfig.domain}`}
+              target="_blank"
+              rel="noreferrer"
+            >
               View storefront <ExternalLink className="size-4" />
             </a>
           </Button>
@@ -214,13 +228,15 @@ export function Dashboard() {
           <p className="text-sm text-muted-foreground">
             {shop.status === "suspended"
               ? "Your subscription lapsed, so your storefront is offline. Your catalog is safe — renew to publish it again."
-              : "Your storefront isn't public yet. You can build your catalog now; it goes live as soon as your ₹500/month subscription is active."}
+              : `Your storefront isn't public yet. You can build your catalog now; it goes live as soon as your ${planPrice(shop)}/month subscription is active.`}
           </p>
           <Button disabled={paying} onClick={() => void subscribe(shop)} className="shrink-0">
-            {paying ? "Opening checkout…" : shop.status === "suspended" ? "Renew subscription" : "Pay ₹500 & publish"}
+            {paying ? "Opening checkout…" : shop.status === "suspended" ? "Renew subscription" : `Pay ${planPrice(shop)} & publish`}
           </Button>
         </div>
       )}
+
+      <DomainCard key={shop.id} shop={shop} ownDomainOn={ownDomain} onChanged={load} />
 
       {shop.status === "draft" && (
         <div className="-mt-3 mb-6 text-sm text-muted-foreground">

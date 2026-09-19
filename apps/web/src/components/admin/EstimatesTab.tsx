@@ -85,6 +85,9 @@ export function EstimatesTab({ onExpired }: { onExpired: () => void }) {
                     <Field label="Account type">{e.account_type}</Field>
                     <Field label="Business / city">{[e.business_name, e.city].filter(Boolean).join(" · ")}</Field>
                     <Field label="Their note about the business" wide>{e.description}</Field>
+                    {e.requested_domain && (
+                      <Field label="Web address they asked about">{e.requested_domain}</Field>
+                    )}
                     <Field label="What they picked" wide>
                       <ul className="space-y-1">
                         {e.selected_items.map((i) => (

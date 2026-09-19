@@ -89,7 +89,7 @@ adminData.get("/estimates", requireAdmin, async (c) => {
   const { rows } = await query(
     `SELECT l.id, l.ticket_ref, l.status, l.deposit_status, l.budget_low::float8 AS budget_low,
             l.budget_high::float8 AS budget_high, l.selected_items, l.name, l.email, l.description,
-            l.admin_notes, l.razorpay_order_id, l.created_at, l.updated_at, l.user_phone AS phone,
+            l.admin_notes, l.razorpay_order_id, l.created_at, l.updated_at, l.user_phone AS phone, l.requested_domain,
             p.full_name AS profile_name, p.email AS profile_email, p.account_type, p.business_name, p.city
        FROM consultancy_leads l
        LEFT JOIN user_profiles p ON p.user_phone = l.user_phone
@@ -199,12 +199,19 @@ adminData.get("/shops", requireAdmin, async (c) => {
             s.owner_phone AS phone, p.full_name AS profile_name, p.email AS profile_email,
             p.business_name, p.city,
             sub.status AS subscription_status, sub.current_period_end,
-            (SELECT count(*)::int FROM shop_items i WHERE i.shop_id = s.id) AS item_count
+            (SELECT count(*)::int FROM shop_items i WHERE i.shop_id = s.id) AS item_count,
+            s.plan, d.domain AS own_domain, d.status AS own_domain_status, d.cost_cents AS own_domain_cost_cents,
+            d.renewal_cents AS own_domain_renewal_cents, d.expires_at AS own_domain_expires_at,
+            d.alert AS own_domain_alert, d.last_error AS own_domain_last_error
        FROM shops s
        LEFT JOIN user_profiles p ON p.user_phone = s.owner_phone
        LEFT JOIN LATERAL (
          SELECT status, current_period_end FROM shop_subscriptions WHERE shop_id = s.id ORDER BY created_at DESC LIMIT 1
        ) sub ON true
+       LEFT JOIN LATERAL (
+         SELECT domain, status, cost_cents, renewal_cents, expires_at, alert, last_error FROM shop_domains
+          WHERE shop_id = s.id AND status <> 'released' ORDER BY created_at DESC LIMIT 1
+       ) d ON true
        ${where}
        ORDER BY s.created_at DESC
        LIMIT ${limit} OFFSET ${offset}`,

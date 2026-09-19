@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { query } from "../lib/db.js";
-import { vendorPlanId, verifyWebhookSignature } from "../lib/razorpay.js";
+import { babukiPlanOf, cancelSubscription, verifyWebhookSignature } from "../lib/razorpay.js";
+import { onPremiumLapsed, onPremiumPaid } from "../lib/domain-worker.js";
 
 export const webhooks = new Hono();
 
@@ -20,13 +21,47 @@ type RazorpayWebhookEvent = {
 // against Babuki's own separate database, so a non-Babuki event matches
 // zero rows and no-ops by construction. This plan_id check is an explicit,
 // additional guard on top of that — subscription events for any plan other
-// than Babuki's own (RAZORPAY_VENDOR_PLAN_ID) are ignored outright, before
-// touching the database at all.
-function isBabukiPlan(planId: string | undefined): boolean {
-  try {
-    return !!planId && planId === vendorPlanId();
-  } catch {
-    return false; // this mode's plan isn't configured -> nothing is "ours"
+// than Babuki's own (RAZORPAY_VENDOR_PLAN_ID ₹500, RAZORPAY_PREMIUM_PLAN_ID
+// ₹1,500) are ignored outright, before touching the database at all.
+//
+// Premium ("own web address") payments are handled whatever FEATURE_OWN_DOMAIN
+// says: the switch stops new sales, never money that was already taken.
+const isBabukiPlan = (planId: string | undefined) => babukiPlanOf(planId) !== null;
+
+/** The shop behind a subscription, and whether it has ANOTHER active subscription. */
+async function subscriptionShop(subscriptionId: string) {
+  const { rows } = await query<{ shop_id: string; plan: string; other_active: boolean; other_active_premium: boolean }>(
+    `SELECT x.shop_id, x.plan::text AS plan,
+            EXISTS (SELECT 1 FROM shop_subscriptions o WHERE o.shop_id = x.shop_id AND o.id <> x.id
+                      AND o.status = 'active') AS other_active,
+            EXISTS (SELECT 1 FROM shop_subscriptions o WHERE o.shop_id = x.shop_id AND o.id <> x.id
+                      AND o.status = 'active' AND o.plan = 'premium') AS other_active_premium
+       FROM shop_subscriptions x WHERE x.razorpay_subscription_id = $1`,
+    [subscriptionId],
+  );
+  return rows[0] ?? null;
+}
+
+// An upgrade (₹500 -> ₹1,500) runs as a second subscription on the same shop.
+// Once the premium one is paid, the old ₹500 one is cancelled — only then, so
+// the shop is never left without a plan. (Its own "cancelled" event then
+// arrives; the shop stays live because the premium one is active.)
+async function cancelReplacedStandard(shopId: string) {
+  const { rows } = await query<{ razorpay_subscription_id: string }>(
+    `SELECT razorpay_subscription_id FROM shop_subscriptions
+      WHERE shop_id = $1 AND plan = 'standard' AND status IN ('active', 'pending') AND razorpay_subscription_id IS NOT NULL`,
+    [shopId],
+  );
+  for (const r of rows) {
+    try {
+      await cancelSubscription(r.razorpay_subscription_id);
+      await query("UPDATE shop_subscriptions SET status = 'cancelled' WHERE razorpay_subscription_id = $1", [
+        r.razorpay_subscription_id,
+      ]);
+    } catch (e) {
+      // Left as is: a person can cancel it from the Razorpay dashboard. Logged loudly.
+      console.error(`[upgrade] couldn't cancel the old ₹500 subscription ${r.razorpay_subscription_id}:`, e);
+    }
   }
 }
 
@@ -59,6 +94,11 @@ webhooks.post("/razorpay", async (c) => {
            WHERE id = (SELECT shop_id FROM shop_subscriptions WHERE razorpay_subscription_id = $1)`,
           [entity.id],
         );
+        const sub = await subscriptionShop(entity.id);
+        if (sub?.plan === "premium") {
+          await onPremiumPaid(sub.shop_id);
+          await cancelReplacedStandard(sub.shop_id);
+        }
       }
       break;
     }
@@ -73,12 +113,13 @@ webhooks.post("/razorpay", async (c) => {
           "UPDATE shop_subscriptions SET status = 'cancelled' WHERE razorpay_subscription_id = $1",
           [entity.id],
         );
-        // Lapsed subscription: take the storefront offline (data is kept).
-        await query(
-          `UPDATE shops SET status = 'suspended'
-           WHERE id = (SELECT shop_id FROM shop_subscriptions WHERE razorpay_subscription_id = $1)`,
-          [entity.id],
-        );
+        const sub = await subscriptionShop(entity.id);
+        // Lapsed subscription: take the storefront offline (data is kept) —
+        // unless the shop is still paying through another one (an upgrade).
+        if (sub && !sub.other_active) {
+          await query("UPDATE shops SET status = 'suspended' WHERE id = $1", [sub.shop_id]);
+        }
+        if (sub?.plan === "premium" && !sub.other_active_premium) await onPremiumLapsed(sub.shop_id);
       }
       break;
     }

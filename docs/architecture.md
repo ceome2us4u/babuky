@@ -11,8 +11,10 @@ other eventually). A dual-offering B2B platform, business-owned by
 Me2Us4U (OPC) Private Limited:
 
 - **Track 1 — hyperlocal vendor storefronts** on `[slug].babuki.com`:
-  ₹500/mo, locked for life for early-bird vendors (future vendors pay
-  ₹1,500/mo on a separate Razorpay plan). Catalog: categories, items
+  ₹500/mo, locked for life for early-bird vendors. **Plus, behind a switch
+  that is OFF by default, the ₹1,500/mo "own web address" plan** — the
+  storefront at a real domain (`sreeram.in`) that Babuki registers and owns;
+  see "Own web address plan" below. Catalog: categories, items
   (photo, price, optional brand, optional manually-tracked stock). Two
   catalog modes — Display Only (buyer calls/WhatsApps) or Direct Order
   (buyer pays the vendor's own static UPI QR — Babuki never touches that
@@ -51,10 +53,16 @@ babuky/
                             slug-hold.ts (unpaid-draft web-address rules),
                             industries.ts + search.ts (shop kinds; finder radius/
                             places), validation.ts (input rules), rate-limit.ts,
-                            admin-auth.ts (admin sessions/guards), constants.ts, env.ts
+                            admin-auth.ts (admin sessions/guards), constants.ts, env.ts,
+                            features.ts (product switches), and the own web address
+                            plan: domains.ts (rules/search/holds), registrar.ts
+                            (Porkbun / fake), domain-worker.ts (buy + DNS + lifecycle),
+                            custom-domains.ts (CORS set)
       src/routes/           auth.ts, shops.ts (+ catalog, UPI confirm, delete draft),
                             consultancy.ts, geocode.ts (reverse + place search),
-                            webhooks.ts, contact.ts, admin.ts + admin-data.ts
+                            webhooks.ts, contact.ts, admin.ts + admin-data.ts,
+                            domains.ts (own-address search/pick/upgrade),
+                            internal.ts (loopback-only, for root's cert job)
       src/scripts/          set-admin-password.ts (run on the box by
                              scripts/set-admin-password.sh)
       src/server.ts          Hono app, CORS (matches *.babuki.com), mounts
@@ -63,7 +71,9 @@ babuky/
                              subscriptions (PostGIS) · 0003 consultancy_leads ·
                              0004 catalog · 0005 passwords · 0006 admin console +
                              contact_messages + lead follow-up · 0007 otp_codes/
-                             otp_sends
+                             otp_sends · 0008 own web address plan (shops.plan,
+                             shop_subscriptions.plan, shop_domains,
+                             consultancy_leads.requested_domain)
     web/                  Next.js 14 (App Router, TS, Tailwind v4) — PAGES ONLY.
       src/app/(site)/      marketing chrome (Navbar + Footer): / (home),
                              /shops (merchant onboarding + the shop finder),
@@ -109,10 +119,14 @@ babuky/
                              from the Lovable project and downsized
   infra/
     terraform/            all AWS resources (VPC, EC2, S3, IAM, Route 53, secrets)
-    nginx/babuki.conf     api.babuki.com -> :8000, babuki.com/*.babuki.com -> :3000
+    nginx/babuki.conf     api.babuki.com -> :8000, babuki.com/*.babuki.com -> :3000,
+                           port-80 catch-all for HTTP-01, include of per-domain blocks
+    domains/              babuki-domain-certs.sh + systemd .service/.timer (root's
+                           cert job for shops' own domains)
     pm2/ecosystem.config.js   two PM2 apps: babuki-api, babuki-web
   scripts/                deploy.sh (build + ship + migrate + restart both, run from
                           this machine), set-app-mode.sh (TEST/LIVE switch),
+                          set-own-domain.sh (own web address plan on/off + its settings),
                           set-admin-password.sh (owner sets the admin password),
                           catchup-first-boot.sh
 ```
@@ -163,6 +177,9 @@ database is exactly what's being avoided:
   only `MSG91_OTP_TEMPLATE_ID` (and `MSG91_OTP_VAR` if the merge variable isn't
   `number`) changes; nothing else in the code does. The template id is a plain
   non-secret value, like Home's own `deploy.sh`.
+  **Porkbun (domain registrar) is NOT shared**: it's Babuki's own account
+  (Babuki is the registrant of every shop domain), with its own API keys in
+  `babuki/prod/porkbun-*` — nothing of Home's.
   These are external SaaS accounts, not AWS infra/DB/code. Note the two
   are NOT interchangeable the same way: `MSG91_AUTH_KEY` and
   `RAZORPAY_KEY_SECRET` are genuinely account-wide credentials (safe to
@@ -230,9 +247,17 @@ could have been anything).
   pre-date passwords), `password_set_at`, `failed_login_count`, `locked_until`.
 - `shops` (slug, industry, mode, PostGIS `geog` point + GIST index, status,
   `upi_id`/`verified_merchant_name`/`is_upi_verified` — see the UPI
-  checkout section above) / `shop_subscriptions` (locked to an immutable
-  Razorpay Plan id — *that's* the lifetime-lock mechanism, not a stored
-  price).
+  checkout section above, `plan` `standard`|`premium`) / `shop_subscriptions`
+  (locked to an immutable Razorpay Plan id — *that's* the lifetime-lock
+  mechanism, not a stored price; `plan` says which of the two it pays for, so
+  an upgrade's second subscription can be told apart).
+- `shop_domains` — the own web address plan: one row per domain a shop has
+  chosen (`held` → `registering` → `dns_pending` → `cert_pending` → `active`
+  → `grace` → `released`, or `failed`), with the hold expiry, what it cost,
+  its renewal price, expiry, grace end, retry/backoff state and an `alert` for
+  the admin console. Partial unique indexes: one live claim per domain, one
+  live domain per shop. `consultancy_leads.requested_domain` remembers the
+  address an "On request" customer asked about.
 - `shop_categories` / `shop_items` (price in paise, optional `brand` text,
   optional `stock_quantity` — `NULL` = untracked/always available, a
   number is vendor-set and manual; nothing auto-decrements, Babuki never
@@ -359,7 +384,14 @@ could have been anything).
   status. **Shop lifecycle lives here**: `subscription.activated`/`.charged`
   set `shops.status = 'active'` (the only thing that makes a storefront
   visible to by-slug/nearby/catalog), `.cancelled`/`.halted` set it to
-  `suspended` (data kept, storefront offline).
+  `suspended` (data kept, storefront offline) — unless the shop still has
+  another active subscription (an upgrade). Both Babuki plan ids are accepted
+  (₹500 and ₹1,500); premium events drive the domain lifecycle.
+- Own web address: `GET /features`, `GET /domains/search`,
+  `GET|POST /shops/:id/domain`, `POST /shops/:id/upgrade`, and loopback-only
+  `/internal/domains/{certs,cert-ok,cert-failed}` — see "Own web address plan".
+  `/shops/mine` adds `plan`, `own_domain(_status, _grace_until)`;
+  `/shops/by-slug/:slug` adds `own_domain` (live only).
 - `/contact` — the contact form. The old generic `/razorpay/create-order`
   (unauthenticated, arbitrary amount) was removed once nothing used it;
   every Razorpay order/subscription is now created by an authenticated
@@ -444,6 +476,112 @@ subscription / ₹100 deposit, and the LIVE UPI-ID check. If SMS delivery turns
 out not to work, `bash scripts/set-app-mode.sh test <host>` restores test mode
 immediately.
 
+## Own web address plan (₹1,500/mo) — behind `FEATURE_OWN_DOMAIN`
+
+A shop can run at its own domain (`sreeram.in`) instead of only
+`sreeram.babuki.com`. **Babuki registers and owns every such domain** (in
+Babuki's own Porkbun account) and licenses it to the shop while it pays; it is
+never transferred to the merchant. Both plans are early-bird, flat (no GST
+added on top) and locked for life: ₹500 Starter, ₹1,500 own web address.
+
+**The switch.** `FEATURE_OWN_DOMAIN=on|off` in the API's env on the box
+(`lib/features.ts`; anything but `on` is OFF, and the first deploy writes
+`off`). Flipped like `APP_MODE`, never by editing code:
+
+```bash
+bash scripts/set-own-domain.sh on 13.204.187.141    # or: off
+```
+
+It restarts the API and checks `/health`, which reports `features.ownDomain`.
+`deploy.sh` preserves it. The web app asks `GET /features` at runtime (no
+build-time flag) and **treats "loading" and "no answer" as OFF**, so a switched-
+off site renders exactly the old ₹500 flow — Step 1 "Claim your subdomain",
+"Pay ₹500", the old banner, no dashboard card, no Terms section. OFF makes every
+*selling* endpoint answer 404 (`/domains/search`, `POST /shops/:id/domain`,
+`/shops/:id/upgrade`), `POST /shops` refuses `plan: "premium"`, and the
+estimator ignores `?domain=`. **OFF never touches money already taken**: the
+webhook, the worker, renewals, `/subscribe` for a shop already on premium and
+`GET /shops/:id/domain` all follow each shop's own `plan`, not the switch — a
+premium shop keeps its address and its dashboard card.
+
+**Which names are offered** (`lib/domains.ts`; every value is a setting in the
+same env, changed with `set-own-domain.sh set KEY VALUE <host>`):
+- `DOMAIN_PRICE_CAP_USD` (14): first-year price, regular price **and renewal**
+  price for *that exact name* (Porkbun `checkDomain`: `price`, `regularPrice`,
+  `additional.renewal.price`) must all fit — teaser endings like `.shop`
+  ($2 → $31/yr) are why renewal counts.
+- `DOMAIN_TLDS_OFFERED` (`.com,.in,.co.in,.net,.org`): the only endings that can
+  be bought in the plan. A fixed list, not "anything under the cap": ~100
+  endings pass the price test, mostly odd or spam-flagged ones, and some can't
+  be held by an Indian company (`.de`, `.eu`, `.us`, `.com.au`).
+- `DOMAIN_TLDS_ON_REQUEST` (`.shop,.online,.io`): always shown, never buyable.
+- `DOMAIN_IN_LIMIT` (90): after this many `.in`-family domains, `.in` turns "On
+  request" — NIXI requires CEO approval above 100 `.in` domains per company.
+- A brand blocklist (Babuki is the respondent in any UDRP/INDRP complaint).
+
+The search (`GET /domains/search?q=sreeram[.shop]`, signed-in merchants only,
+20/min per person and site-wide, registrar answers cached 5 min — Porkbun allows
+~200 name checks/min per account) returns `available` / `on_request` (with
+`reason: ending|name`) / `taken` / `unknown` and **never prices**. "On request"
+links to `/estimator?domain=…`, which pre-picks "My own web address" and stores
+the address on the lead (`requested_domain`, shown in the admin console).
+
+**Lifecycle.** Signup (`POST /shops` with `plan: "premium", domain`) or upgrade
+(`POST /shops/:id/upgrade`) *holds* the name for 30 minutes (re-checked live) —
+nothing is bought before a payment. The shop also gets a free `<slug>.babuki.com`
+derived from the name. The Razorpay webhook, on the first paid premium
+subscription: `shops.plan = premium`, domain → `registering`, and (upgrade) the
+old ₹500 subscription is cancelled — only then, so the shop is never without a
+plan; that subscription's own `cancelled` event doesn't suspend the shop because
+another one is active. `lib/domain-worker.ts` (in the API process, every 30 s):
+re-checks availability and budget, buys it for exactly the quoted cost (Porkbun
+refuses if the price moved), records cost/renewal/expiry, replaces Porkbun's
+parking records with A records for the root and `www` → `PUBLIC_IP` (the Elastic
+IP, written by `deploy.sh`), then `cert_pending`. Failures back off; after 8
+tries the row gets an admin `alert`. Taken or over budget at purchase time →
+`failed`, and the merchant re-picks on the dashboard at no cost (the shop is
+live on its Babuki address meanwhile). A lapsed premium subscription suspends the
+shop (as for ₹500) and moves the domain to `grace` for 30 days — paying again
+restores both; after that auto-renew is switched off and it's `released`. A
+6-hourly job also re-checks the renewal price of anything expiring within 45
+days and raises an `alert` if it's over budget (auto-renew stays on).
+
+**Serving it.** Root's certificate job (`infra/domains/babuki-domain-certs.sh`,
+systemd timer, every minute, installed by `deploy.sh`) reads
+`GET /internal/domains/certs` (plain text, `<domain> <slug> <issue|serve>`),
+gets a Let's Encrypt cert per domain by **HTTP-01** (webroot `/var/www/acme`,
+answered by the port-80 `default_server` in `babuki.conf` — DNS-01 isn't
+possible for a zone hosted at Porkbun), writes
+`/etc/nginx/babuki-domains/<domain>.conf` and reloads Nginx only after
+`nginx -t`. That block proxies to `:3000` with **`Host: <slug>.babuki.com`**, so
+the existing Next rewrite serves the store unchanged; it removes blocks for
+domains no longer served. Failed certs back off 15 min → 6 h (Let's Encrypt
+allows ~5 failed validations per name per hour). `/internal/*` accepts only
+loopback requests **without** `X-Forwarded-For` — Nginx always adds that
+header, so nothing proxied from the internet can reach it. The API never runs
+as root. CORS trusts the live custom domains (`lib/custom-domains.ts`, reloaded
+every minute); the storefront sets its canonical URL to the own domain.
+
+**Registrar and mode.** `lib/registrar.ts`: LIVE = Porkbun with
+`PORKBUN_API_KEY_LIVE`/`PORKBUN_SECRET_KEY_LIVE` (fails closed). TEST = Porkbun's
+**sandbox** only if `PORKBUN_API_KEY_TEST` is a `pk1_sb_` key, else an in-memory
+fake — test mode can never buy a real domain. Porkbun charges the account's
+prepaid USD credit; its API also requires one earlier (manual) registration on
+the account and refuses premium names. The ₹1,500 Razorpay plan is
+`RAZORPAY_PREMIUM_PLAN_ID_LIVE|_TEST`; until it's set, premium checkout fails
+closed with a friendly error. All of these come from `babuki/prod/porkbun-*`
+and `babuki/prod/razorpay-premium-plan-id(-test)` (placeholders in
+`secrets.tf`).
+
+**Terms.** `components/terms/OwnDomainTerms.tsx` (shown only while ON): Babuki
+is the registrant and licenses the name; what the price covers; the vendor
+warrants its right to the name and indemnifies Babuki; consent to disclose the
+vendor's identity to a complainant with evidence of harm (ICANN RAA §3.7.7.3's
+7-day rule for registrants who license names); the 30-day grace then release;
+replacements; upgrade; refunds. The MSA's tax line now says vendor prices at
+checkout are the total payable, **inclusive of any applicable GST** (true
+whether or not the company is GST-registered).
+
 ## Input validation
 
 Every field is validated twice: `apps/web/src/lib/validate.ts` gives instant
@@ -463,7 +601,10 @@ sync.** The rules:
   script plus spaces and `. ' -` — no digits; max 100.
 - **Email**: format-checked, spaces stripped, max 255. **Subdomain slug**:
   3–24 of `a-z0-9` with single inner hyphens (no leading/trailing hyphen — it
-  has to be a valid DNS label). **UPI ID**: `name@bank`. **Price**: max 2
+  has to be a valid DNS label). **Own-domain search**: a name of 3–40 `a-z0-9`
+  with single inner hyphens, optionally with an ending (`.shop`, `.co.in`);
+  a picked domain must be on the offered list (`validate.ts` `domainInput`/
+  `domainQueryError` ↔ `lib/domains.ts` `parseDomainQuery`). **UPI ID**: `name@bank`. **Price**: max 2
   decimals, ₹0–₹10,00,000, stored as integer paise. **Stock**: whole number
   0–999,999 or untracked.
 - Text lengths are capped everywhere (business 120, city 100, item name 120,
@@ -623,6 +764,15 @@ Terraform would then manage.
   Razorpay (key secret, webhook secret, plan `plan_TdVzzDQoYIGSj0`) is
   already real. The **TEST** Razorpay set (`babuki/prod/razorpay-*-test`) is
   filled in too, so test mode works if the box is ever flipped back.
+- **Own web address plan** (2026-09-19): built and deployed with
+  `FEATURE_OWN_DOMAIN=off`. Tested end to end against a local PostGIS database
+  in TEST mode with the fake registrar (search, hold, payment webhook, purchase,
+  DNS, cert job endpoints, grace, renewal, upgrade, switch-off). **Not yet
+  exercised for real:** a Porkbun purchase (needs Babuki's Porkbun account,
+  prepaid credit and API keys in `babuki/prod/porkbun-*`, plus one manual first
+  registration Porkbun requires), a real ₹1,500 payment (needs the Razorpay
+  plans in `babuki/prod/razorpay-premium-plan-id(-test)`), and a Let's Encrypt
+  HTTP-01 certificate on the box.
 - **Known gaps / not built yet** (as of 2026-09-19): the estimator rebuild (plan:
   server-side price list, confirmed booking, richer page — not started); alerts
   (email/Telegram) when an enquiry arrives — enquiries are only visible in the

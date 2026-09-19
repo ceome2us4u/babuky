@@ -18,6 +18,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: `${shop.name} — ${shop.industry} · Babuki`,
     description: `Browse ${shop.name}'s catalog and order directly${shop.address_text ? ` — ${shop.address_text}` : ""}.`,
     openGraph: { title: shop.name, description: `${shop.industry} on Babuki` },
+    // Served at both its own address and slug.babuki.com: tell search engines
+    // which one is the real page, so the two don't compete.
+    ...(shop.own_domain ? { alternates: { canonical: `https://${shop.own_domain}/` } } : {}),
   };
 }
 

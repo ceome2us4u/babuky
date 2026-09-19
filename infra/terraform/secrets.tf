@@ -114,3 +114,36 @@ resource "aws_secretsmanager_secret_version" "razorpay_test" {
     ignore_changes = [secret_string] # never clobber a real value set later
   }
 }
+
+# --- "Own web address" plan (₹1,500/mo) ------------------------------------
+# Babuki's OWN Porkbun account (the registrant of every shop domain) and the
+# ₹1,500 Razorpay plans. Placeholders until the owner pastes the real values;
+# until then the API fails closed (no search, no purchase, no ₹1,500 checkout)
+# and nothing else is affected. The feature itself is FEATURE_OWN_DOMAIN,
+# flipped with scripts/set-own-domain.sh. The TEST Porkbun key must be a
+# SANDBOX key (pk1_sb_...) — anything else makes test mode use an in-memory fake.
+locals {
+  own_domain_secrets = {
+    "porkbun-api-key"               = "Porkbun API key (Babuki's own account)"
+    "porkbun-secret-key"            = "Porkbun secret API key (Babuki's own account)"
+    "porkbun-api-key-test"          = "Porkbun SANDBOX API key (pk1_sb_...) for APP_MODE=test"
+    "porkbun-secret-key-test"       = "Porkbun SANDBOX secret API key for APP_MODE=test"
+    "razorpay-premium-plan-id"      = "Razorpay LIVE INR 1,500/mo own web address plan id"
+    "razorpay-premium-plan-id-test" = "Razorpay TEST INR 1,500/mo own web address plan id"
+  }
+}
+
+resource "aws_secretsmanager_secret" "own_domain" {
+  for_each    = local.own_domain_secrets
+  name        = "babuki/prod/${each.key}"
+  description = each.value
+}
+
+resource "aws_secretsmanager_secret_version" "own_domain" {
+  for_each      = local.own_domain_secrets
+  secret_id     = aws_secretsmanager_secret.own_domain[each.key].id
+  secret_string = "not-configured-yet"
+  lifecycle {
+    ignore_changes = [secret_string] # never clobber a real value set later
+  }
+}

@@ -1,0 +1,9 @@
+# HTTPS certificates + Nginx server blocks for shops' own web addresses.
+# See babuki-domain-certs.sh. Triggered every minute by the .timer.
+[Unit]
+Description=Babuki own-domain certificates
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/babuki-domain-certs

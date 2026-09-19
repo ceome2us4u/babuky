@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { OwnDomainTermsItem } from "@/components/terms/OwnDomainTerms";
 
 export const metadata: Metadata = {
   title: "Contract & Terms Center — Babuki",
@@ -29,7 +30,7 @@ const SECTIONS = [
       "Parties: Me2Us4U (OPC) Private Limited, operator of babuki.com ('Babuki'), and the subscribing vendor or client ('Counterparty').",
       "Scope: Babuki provides software-as-a-service provisioning (subdomain storefronts, discovery listing) and, separately, bespoke software consultancy services.",
       "Term & renewal: Subscriptions renew monthly. Early-bird vendors retain ₹500/month for the lifetime of continuous subscription; lapsed accounts re-enter at prevailing rates.",
-      "Fees & taxes: All fees are exclusive of GST unless stated. The ₹100 consultancy commitment deposit is credited in full against the first project invoice on contract signing.",
+      "Fees & taxes: Vendor subscription prices shown at checkout are the total amount payable, inclusive of any applicable GST. Consultancy fees are exclusive of GST unless stated. The ₹100 consultancy commitment deposit is credited in full against the first project invoice on contract signing.",
       "Confidentiality: Each party protects the other's non-public information for three years from disclosure.",
       "Limitation of liability: Aggregate liability is limited to fees paid in the three months preceding the claim.",
       "Governing law: Laws of India; exclusive jurisdiction of the courts at the registered office of Me2Us4U (OPC) Pvt Ltd.",
@@ -100,6 +101,7 @@ export default function TermsPage() {
             </AccordionContent>
           </AccordionItem>
         ))}
+        <OwnDomainTermsItem />
       </Accordion>
 
       <section className="panel mt-8 rounded-lg p-8">

@@ -4,6 +4,8 @@ import { getSessionUserPhone } from "../lib/auth-middleware.js";
 import { publicError } from "../lib/mode.js";
 import { createOrder, razorpayKeyId } from "../lib/razorpay.js";
 import { EMAIL_RE, LIMITS, NAME_RE, isIntInRange, str, textError } from "../lib/validation.js";
+import { ownDomainEnabled } from "../lib/features.js";
+import { parseDomainQuery } from "../lib/domains.js";
 
 export const consultancy = new Hono();
 
@@ -57,6 +59,11 @@ consultancy.post("/leads", async (c) => {
     return c.json({ error: "selectedItems is invalid" }, 400);
   }
 
+  // A web address the customer asked about from the shop signup's "On request"
+  // link (/estimator?domain=…). Only kept while the own-domain feature is on.
+  const asked = ownDomainEnabled() ? parseDomainQuery(str(body?.requestedDomain)) : null;
+  const requestedDomain = asked?.ending ? `${asked.label}${asked.ending}` : "";
+
   const budgetLow = selectedItems.reduce((sum, item) => sum + Number(item.low || 0), 0);
   const budgetHigh = selectedItems.reduce((sum, item) => sum + Number(item.high || 0), 0);
   const ticketRef = generateTicketRef();
@@ -66,9 +73,10 @@ consultancy.post("/leads", async (c) => {
 
     await query(
       `INSERT INTO consultancy_leads
-         (user_phone, ticket_ref, selected_items, budget_low, budget_high, name, email, description, razorpay_order_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [phone, ticketRef, JSON.stringify(selectedItems), budgetLow, budgetHigh, name, email, description, order.id],
+         (user_phone, ticket_ref, selected_items, budget_low, budget_high, name, email, description, razorpay_order_id,
+          requested_domain)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [phone, ticketRef, JSON.stringify(selectedItems), budgetLow, budgetHigh, name, email, description, order.id, requestedDomain],
     );
 
     // keyId: the browser opens Checkout with the key for the ACTIVE mode, so a

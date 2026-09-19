@@ -16,6 +16,29 @@ const razorpayKeySecret = () => pick("RAZORPAY_KEY_SECRET");
 export const razorpayWebhookSecret = () => pick("RAZORPAY_WEBHOOK_SECRET");
 /** Babuki's own ₹500/mo plan for the active mode (test mode needs its own plan in Razorpay's test dashboard). */
 export const vendorPlanId = () => pick("RAZORPAY_VENDOR_PLAN_ID");
+/**
+ * The ₹1,500/mo "own web address" early-bird plan (RAZORPAY_PREMIUM_PLAN_ID_LIVE
+ * | _TEST, from Secrets Manager). Until it's configured, premium payments fail
+ * closed with a friendly error — nothing else is affected.
+ */
+export const premiumPlanId = () => pick("RAZORPAY_PREMIUM_PLAN_ID");
+
+export type ShopPlan = "standard" | "premium";
+
+export const planIdFor = (plan: ShopPlan) => (plan === "premium" ? premiumPlanId() : vendorPlanId());
+
+/** Which of Babuki's plans a Razorpay plan id is, or null if it's not ours (the account is shared). */
+export function babukiPlanOf(planId: string | undefined): ShopPlan | null {
+  if (!planId) return null;
+  for (const [plan, id] of [["standard", vendorPlanId], ["premium", premiumPlanId]] as const) {
+    try {
+      if (planId === id()) return plan;
+    } catch {
+      /* this mode's plan isn't configured -> can't be this one */
+    }
+  }
+  return null;
+}
 
 function getClient() {
   return new Razorpay({ key_id: razorpayKeyId(), key_secret: razorpayKeySecret() });
@@ -45,12 +68,12 @@ export async function createOrder(amountInPaise: number, receipt: string) {
 // (the plan, not the subscription) is unaffected.
 export const VENDOR_SUBSCRIPTION_CYCLES = 120;
 
-export async function createVendorSubscription(shopId: string) {
+export async function createVendorSubscription(shopId: string, plan: ShopPlan = "standard") {
   const res = await fetch("https://api.razorpay.com/v1/subscriptions", {
     method: "POST",
     headers: { Authorization: razorpayAuth(), "Content-Type": "application/json" },
     body: JSON.stringify({
-      plan_id: vendorPlanId(),
+      plan_id: planIdFor(plan),
       customer_notify: 1,
       total_count: VENDOR_SUBSCRIPTION_CYCLES,
       notes: { shop_id: shopId },

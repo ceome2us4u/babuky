@@ -12,6 +12,8 @@ export type StoreShop = {
   upi_id: string | null;
   verified_merchant_name: string | null;
   is_upi_verified: boolean;
+  /** The shop's own web address once it's live (own web address plan), else null. */
+  own_domain?: string | null;
 };
 
 export type StoreItem = {
