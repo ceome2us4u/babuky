@@ -4,14 +4,14 @@ import { query } from "../lib/db.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
 import { requireShopOwner } from "../lib/require-shop-owner.js";
 import { publicError } from "../lib/mode.js";
-import { createVendorSubscription, razorpayKeyId, validateVpa } from "../lib/razorpay.js";
+import { createVendorSubscription, razorpayKeyId } from "../lib/razorpay.js";
 import { createItemImageUploadUrl } from "../lib/storage.js";
 import { SHOP_MODES } from "../lib/constants.js";
 import { industryFilter, normalizeIndustry } from "../lib/industries.js";
 import { parseRadiusKm } from "../lib/search.js";
 import { findSlugHolder, noPaymentInFlight, releaseDraft } from "../lib/slug-hold.js";
 import { VENDOR_SUBSCRIPTION_CYCLES, fetchSubscription } from "../lib/razorpay.js";
-import { LIMITS, NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
+import { LIMITS, NAME_RE, UPI_NAME_RE, isIntInRange, isSlug, isUuid, str, textError } from "../lib/validation.js";
 
 export const shops = new Hono();
 
@@ -95,7 +95,7 @@ shops.get("/mine", async (c) => {
 });
 
 // Vendor-editable shop settings. Only the catalog mode for now: switching to
-// 'order' still needs a Razorpay-verified UPI ID before the storefront will
+// 'order' still needs a confirmed UPI ID before the storefront will
 // offer online payment (the cart falls back to WhatsApp until then).
 shops.patch("/:id", async (c) => {
   const shopId = c.req.param("id");
@@ -117,8 +117,8 @@ shops.patch("/:id", async (c) => {
 // Public storefront lookup (slug.babuki.com resolves here) — the checkout
 // page builds its UPI deep link (upi://pay?pa=...&pn=...&am=...&cu=INR)
 // client-side from upi_id/verified_merchant_name, so only ever expose
-// those once is_upi_verified is true; an unverified upi_id is never
-// returned, so a QR can't be built from a VPA Razorpay hasn't confirmed.
+// those once is_upi_verified is true (the owner confirmed it - see /upi/confirm);
+// an unconfirmed upi_id is never returned, so no QR is built from it.
 shops.get("/by-slug/:slug", async (c) => {
   const slug = c.req.param("slug").toLowerCase();
 
@@ -176,9 +176,8 @@ shops.post("/", async (c) => {
     return c.json({ error: "lat/lng are required and must be valid coordinates" }, 400);
   }
 
-  // Direct Order mode shops start unverified — UPI VPA collection/
-  // verification is its own follow-up step (POST /:id/upi/validate then
-  // /:id/upi/confirm), not part of initial shop creation.
+  // Direct Order shops start without a UPI ID — the owner adds and confirms it
+  // in a follow-up step (POST /:id/upi/confirm), not at shop creation.
 
   const holder = await findSlugHolder(slug);
   if (holder) {
@@ -215,33 +214,16 @@ shops.post("/", async (c) => {
   }
 });
 
-// --- UPI VPA verification (Direct Order mode) -----------------------------
-// Two-step: /validate is a pure preview (calls Razorpay, persists nothing)
-// so the UI can show "is this your business? [Confirm]"; /confirm re-runs
-// the same Razorpay validation server-side and only then persists — never
-// trusts a client-supplied name, only what Razorpay itself returned.
+// --- UPI ID (Direct Order mode): confirmed by the shop owner --------------
+// Razorpay can no longer look a UPI ID up for us (see the note in lib/razorpay.ts),
+// so the OWNER confirms it: they enter the UPI ID, scan a test QR with their own
+// UPI app, read the name it shows, type that name and tick that it is theirs.
+// We store exactly that. The columns keep their old names (`is_upi_verified`,
+// `verified_merchant_name`) but now mean "confirmed by the owner" / "the name
+// their UPI app showed" — self-reported, so the UI says so and never claims
+// more. Buyers' own UPI apps show the payee name before they pay.
 
 const VPA_PATTERN = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9]{2,64}$/;
-
-shops.post("/:id/upi/validate", async (c) => {
-  const shopId = c.req.param("id");
-  const phone = await getSessionUserPhone(c);
-  if (!phone) return c.json({ error: "Not authenticated" }, 401);
-  if (!(await requireShopOwner(shopId, phone))) return c.json({ error: "Shop not found" }, 404);
-
-  const body = await c.req.json().catch(() => null);
-  const upiId = typeof body?.upiId === "string" ? body.upiId.trim() : "";
-  if (!VPA_PATTERN.test(upiId)) return c.json({ error: "upiId is not a valid UPI VPA" }, 400);
-
-  try {
-    const result = await validateVpa(upiId);
-    if (!result.valid) return c.json({ error: "This UPI ID could not be verified" }, 422);
-    return c.json({ valid: true, upiId, customerName: result.customerName });
-  } catch (error) {
-    const message = publicError(error, "We couldn't verify your UPI ID right now. Please try again in a moment.");
-    return c.json({ error: message }, 503);
-  }
-});
 
 shops.post("/:id/upi/confirm", async (c) => {
   const shopId = c.req.param("id");
@@ -251,26 +233,24 @@ shops.post("/:id/upi/confirm", async (c) => {
 
   const body = await c.req.json().catch(() => null);
   const upiId = typeof body?.upiId === "string" ? body.upiId.trim() : "";
-  if (!VPA_PATTERN.test(upiId)) return c.json({ error: "upiId is not a valid UPI VPA" }, 400);
+  const name = typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
 
-  try {
-    const result = await validateVpa(upiId);
-    if (!result.valid || !result.customerName) {
-      return c.json({ error: "This UPI ID could not be verified" }, 422);
-    }
-
-    const { rows } = await query(
-      `UPDATE shops
-       SET upi_id = $2, verified_merchant_name = $3, is_upi_verified = true
-       WHERE id = $1
-       RETURNING id, upi_id, verified_merchant_name, is_upi_verified`,
-      [shopId, upiId, result.customerName],
-    );
-    return c.json({ shop: rows[0] });
-  } catch (error) {
-    const message = publicError(error, "We couldn't verify your UPI ID right now. Please try again in a moment.");
-    return c.json({ error: message }, 503);
+  if (!VPA_PATTERN.test(upiId)) return c.json({ error: "That doesn't look like a UPI ID (it should be like name@bank)" }, 400);
+  if (!UPI_NAME_RE.test(name)) {
+    return c.json({ error: "Enter the name your UPI app showed (letters, numbers and . & ' ( ) - only, up to 60 characters)" }, 400);
   }
+  if (body?.confirmed !== true) {
+    return c.json({ error: "Please confirm that this is your own UPI ID and the name is exactly what your app showed" }, 400);
+  }
+
+  const { rows } = await query(
+    `UPDATE shops
+        SET upi_id = $2, verified_merchant_name = $3, is_upi_verified = true
+      WHERE id = $1
+    RETURNING id, upi_id, verified_merchant_name, is_upi_verified`,
+    [shopId, upiId, name],
+  );
+  return c.json({ shop: rows[0] });
 });
 
 shops.get("/nearby", async (c) => {
@@ -328,7 +308,7 @@ shops.get("/nearby", async (c) => {
   const { rows } = await query(
     // owner_phone is exposed here on purpose: the Shops Nearby cards have
     // Call / WhatsApp buttons, and this endpoint is already gated to
-    // signed-in LOCAL_BUYER sessions. UPI fields only once Razorpay-verified.
+    // signed-in LOCAL_BUYER sessions. UPI fields only once the owner has confirmed them.
     `SELECT id, slug, name, industry, mode,
             owner_phone AS phone,
             CASE WHEN is_upi_verified THEN upi_id END AS upi_id,
