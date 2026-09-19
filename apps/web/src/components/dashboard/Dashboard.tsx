@@ -40,6 +40,8 @@ export function Dashboard() {
   const [shops, setShops] = useState<MyShop[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -64,6 +66,22 @@ export function Dashboard() {
   );
 
   const shop = shops?.find((s) => s.id === selectedId) ?? null;
+
+  // Throw away a shop that was never paid for: frees its web address again.
+  const deleteDraft = async (s: MyShop) => {
+    setDeleting(true);
+    try {
+      await apiFetch(`/shops/${s.id}`, { method: "DELETE" });
+      toast.success(`${s.slug}.${siteConfig.domain} is free again`);
+      setConfirmDelete(false);
+      setSelectedId(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't delete this shop");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Subscribing (or renewing a lapsed shop): the payment webhook flips the
   // shop to 'active', so poll for it after Checkout succeeds.
@@ -201,6 +219,26 @@ export function Dashboard() {
           <Button disabled={paying} onClick={() => void subscribe(shop)} className="shrink-0">
             {paying ? "Opening checkout…" : shop.status === "suspended" ? "Renew subscription" : "Pay ₹500 & publish"}
           </Button>
+        </div>
+      )}
+
+      {shop.status === "draft" && (
+        <div className="-mt-3 mb-6 text-sm text-muted-foreground">
+          {confirmDelete ? (
+            <span className="flex flex-wrap items-center gap-2">
+              Delete <span className="font-mono text-foreground">{shop.slug}</span> and its catalog? The address becomes free for anyone.
+              <Button size="sm" variant="outline" disabled={deleting} onClick={() => setConfirmDelete(false)}>
+                Keep it
+              </Button>
+              <Button size="sm" variant="destructive" disabled={deleting} onClick={() => void deleteDraft(shop)}>
+                {deleting ? "Deleting…" : "Yes, delete"}
+              </Button>
+            </span>
+          ) : (
+            <button className="text-gold hover:underline" onClick={() => setConfirmDelete(true)}>
+              Changed your mind? Delete this unfinished shop
+            </button>
+          )}
         </div>
       )}
 
