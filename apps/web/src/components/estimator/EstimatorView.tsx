@@ -35,108 +35,120 @@ export function EstimatorView() {
   const addAll = (ids: string[]) => setPicked((cur) => new Set([...cur, ...ids]));
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-12 pb-56">
-      <header className="mb-8">
-        <p className="text-xs font-semibold uppercase text-gold">Software for your business</p>
-        <h1 className="mt-2 text-3xl font-black md:text-4xl">
-          Build custom software — <span className="text-gold-gradient">see the price first</span>
-        </h1>
-        <p className="mt-3 max-w-2xl text-sm text-muted-foreground md:text-base">
-          A website, an online shop, a mobile app — no technical knowledge needed. Tick what sounds right and your
-          estimated price updates as you go. You pay nothing to see it.
-        </p>
-      </header>
+    <div>
+      <div className="mx-auto max-w-6xl px-6 py-12">
+        <header className="mb-8">
+          <p className="text-xs font-semibold uppercase text-gold">Software for your business</p>
+          <h1 className="mt-2 text-3xl font-black md:text-4xl">
+            Build custom software — <span className="text-gold-gradient">see the price first</span>
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm text-muted-foreground md:text-base">
+            A website, an online shop, a mobile app — no technical knowledge needed. Tick what sounds right and your
+            estimated price updates as you go. You pay nothing to see it.
+          </p>
+        </header>
 
-      {/* Start from a goal, not a catalog */}
-      <section className="mb-10">
-        <h2 className="flex items-center gap-2 text-lg font-bold">
-          <Sparkles className="size-5 text-gold" /> Not sure where to start? Pick what sounds like you
-        </h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {PRESETS.map((p) => {
-            const items = p.ids.map((id) => ITEM_BY_ID.get(id)!);
-            const { low: pl, high: ph } = sum(items);
-            const active = p.ids.every((id) => picked.has(id)) && picked.size === p.ids.length;
-            return (
-              <button
-                key={p.id}
-                onClick={() => setPicked(new Set(p.ids))}
-                aria-pressed={active}
-                className={`panel flex flex-col rounded-xl p-4 text-left transition ${
-                  active ? "border-gold/70 glow-gold" : "hover:border-gold/40"
-                }`}
-              >
-                <span className="font-semibold leading-snug">{p.title}</span>
-                <span className="mt-1 text-xs text-muted-foreground">{p.sub}</span>
-                <span className="mt-3 text-xs font-semibold text-gold">
-                  Around {inr(pl)} – {inr(ph)}
+        {/* Start from a goal, not a catalog */}
+        <section className="mb-10">
+          <h2 className="flex items-center gap-2 text-lg font-bold">
+            <Sparkles className="size-5 shrink-0 text-gold" /> Not sure where to start? Pick what sounds like you
+          </h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {PRESETS.map((p) => {
+              const items = p.ids.map((id) => ITEM_BY_ID.get(id)!);
+              const { low: pl, high: ph } = sum(items);
+              const active = p.ids.every((id) => picked.has(id)) && picked.size === p.ids.length;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => setPicked(new Set(p.ids))}
+                  aria-pressed={active}
+                  className={`panel flex flex-col rounded-xl p-4 text-left transition ${
+                    active ? "border-gold/70 glow-gold" : "hover:border-gold/40"
+                  }`}
+                >
+                  <span className="font-semibold leading-snug">{p.title}</span>
+                  <span className="mt-1 text-xs text-muted-foreground">{p.sub}</span>
+                  <span className="mt-3 text-xs font-semibold text-gold">
+                    Around {inr(pl)} – {inr(ph)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            You can change anything after picking one — it just saves you time.
+          </p>
+        </section>
+
+        <div className="space-y-12">
+          {SECTIONS.map((section) => (
+            <section key={section.step}>
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+                  {section.step}
                 </span>
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          You can change anything after picking one — it just saves you time.
-        </p>
-      </section>
-
-      <div className="space-y-12">
-        {SECTIONS.map((section) => (
-          <section key={section.step}>
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                {section.step}
-              </span>
-              <div>
-                <h2 className="text-lg font-bold">{section.title}</h2>
-                <p className="mb-4 text-sm text-muted-foreground">{section.caption}</p>
+                <div>
+                  <h2 className="text-lg font-bold">{section.title}</h2>
+                  <p className="mb-4 text-sm text-muted-foreground">{section.caption}</p>
+                </div>
               </div>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {section.items.map((item) => (
-                <OptionCard key={item.id} item={item} on={picked.has(item.id)} onToggle={() => toggle(item.id)} />
-              ))}
-            </div>
-          </section>
-        ))}
+              <div className="grid gap-4 md:grid-cols-2">
+                {section.items.map((item) => (
+                  <OptionCard key={item.id} item={item} on={picked.has(item.id)} onToggle={() => toggle(item.id)} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <div className="panel mt-12 flex items-start gap-3 rounded-xl p-5 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0 text-gold" />
+          <p>
+            This is a <span className="font-medium text-foreground">starting estimate</span>, not a final quote. After a
+            short call with our expert we&apos;ll give you an exact price and timeline for your business.
+          </p>
+        </div>
       </div>
 
-      <div className="panel mt-12 flex items-start gap-3 rounded-xl p-5 text-sm text-muted-foreground">
-        <Info className="mt-0.5 size-4 shrink-0 text-gold" />
-        <p>
-          This is a <span className="font-medium text-foreground">starting estimate</span>, not a final quote. After a
-          short call with our expert we&apos;ll give you an exact price and timeline for your business.
-        </p>
-      </div>
-
-      {/* Sticky summary: what you might have forgotten, the running price, and the next step */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gold/25 bg-background/95 backdrop-blur-xl">
+      {/* Sticky summary: what you might have forgotten, the running price, and
+          the next step. `sticky` (not `fixed`) so it stops above the footer
+          instead of covering it, and it's compact on a phone. */}
+      <div className="sticky bottom-0 z-40 border-t border-gold/25 bg-background/95 backdrop-blur-xl">
         {missing.length > 0 && (
           <div className="border-b border-gold/25 bg-secondary/60">
-            <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
-              <p>
+            <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2 sm:px-6 sm:py-2.5">
+              <p className="min-w-0 flex-1 truncate text-xs sm:text-sm">
                 <span className="font-semibold">You&apos;ll probably also need:</span>{" "}
                 <span className="text-muted-foreground">{missing.map((m) => m.short).join(", ")}</span>
               </p>
-              <Button size="sm" variant="outline" onClick={() => addAll(missing.map((m) => m.id))}>
-                <Plus className="size-4" /> Add {missing.length === 1 ? "it" : "them"} ({inr(sum(missing).low)} –{" "}
-                {inr(sum(missing).high)})
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => addAll(missing.map((m) => m.id))}
+                aria-label={`Add ${missing.length} more: ${missing.map((m) => m.short).join(", ")}`}
+              >
+                <Plus className="size-4" /> Add
+                <span className="hidden sm:inline">
+                  {missing.length === 1 ? " it" : " them"} ({inr(sum(missing).low)} – {inr(sum(missing).high)})
+                </span>
               </Button>
             </div>
           </div>
         )}
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
+          <div className="min-w-0">
             {selected.length === 0 ? (
               <>
                 <p className="text-xs font-semibold uppercase text-muted-foreground">Nothing picked yet</p>
-                <p className="text-sm font-medium text-muted-foreground">
+                <p className="text-xs font-medium text-muted-foreground sm:text-sm">
                   Pick a starting point above, or tick anything below.
                 </p>
               </>
             ) : (
               <>
-                <p className="flex items-center gap-3 text-xs font-semibold uppercase text-muted-foreground">
+                <p className="flex items-center gap-3 text-[11px] font-semibold uppercase text-muted-foreground sm:text-xs">
                   {selected.length} thing{selected.length === 1 ? "" : "s"} picked
                   <button
                     onClick={() => setPicked(new Set())}
@@ -145,14 +157,17 @@ export function EstimatorView() {
                     <RotateCcw className="size-3" /> Start over
                   </button>
                 </p>
-                <p className="text-lg font-bold text-gold-gradient">
-                  Estimated price: {inr(low)} – {inr(high)}
+                <p className="text-base font-bold text-gold-gradient sm:text-lg">
+                  <span className="hidden sm:inline">Estimated price: </span>
+                  {inr(low)} – {inr(high)}
                 </p>
               </>
             )}
           </div>
-          <Button size="lg" disabled={selected.length === 0} onClick={() => setOpen(true)}>
-            <CalendarCheck className="size-4" /> Get my exact price — book a call
+          <Button size="lg" className="shrink-0 px-4 sm:px-8" disabled={selected.length === 0} onClick={() => setOpen(true)}>
+            <CalendarCheck className="size-4" />
+            <span className="sm:hidden">Book a call</span>
+            <span className="hidden sm:inline">Get my exact price — book a call</span>
           </Button>
         </div>
       </div>

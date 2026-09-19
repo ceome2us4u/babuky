@@ -31,7 +31,8 @@ export function Storefront({ shop, items }: { shop: StoreShop; items: StoreItem[
   const phoneDigits = shop.contact_phone.replace(/^\+/, "");
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8 pb-32">
+    <>
+    <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="panel mb-8 flex flex-col gap-4 rounded-xl p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -110,9 +111,13 @@ export function Storefront({ shop, items }: { shop: StoreShop; items: StoreItem[
         </>
       )}
 
+    </div>
+
+      {/* `sticky`, not `fixed`: stays at the bottom of the screen while you
+          browse but stops above the footer instead of covering it. */}
       {cart.count > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gold/25 bg-background/95 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-4">
+        <div className="sticky bottom-0 z-40 border-t border-gold/25 bg-background/95 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
             <div>
               <p className="text-xs font-semibold uppercase text-muted-foreground">
                 {cart.count} item{cart.count === 1 ? "" : "s"} in cart
@@ -127,7 +132,7 @@ export function Storefront({ shop, items }: { shop: StoreShop; items: StoreItem[
       )}
 
       <CartDialog shop={shop} cart={cart} open={cartOpen} onOpenChange={setCartOpen} />
-    </div>
+    </>
   );
 }
 

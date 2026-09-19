@@ -187,13 +187,25 @@ export function MerchantFlow() {
     return (
       <div className="panel rounded-xl p-10 text-center">
         <Store className="mx-auto size-8 text-gold" />
-        <h2 className="mt-4 text-2xl font-bold">Provision your storefront in 4 steps</h2>
-        <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
-          Verify your mobile number to begin. Merchant numbers are tagged{" "}
-          <span className="text-gold">MERCHANT</span> for onboarding support.
+        <h2 className="mt-4 text-2xl font-bold">Set up your online shop in 4 easy steps</h2>
+        <ol className="mx-auto mt-4 flex max-w-2xl flex-wrap justify-center gap-2 text-xs text-muted-foreground">
+          {["Pick your web address", "Add your shop details", "Mark your place on the map", "Pay ₹500/month & go live"].map(
+            (s, i) => (
+              <li key={s} className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5">
+                <span className="grid size-5 place-items-center rounded-full bg-secondary text-[11px] font-bold text-burgundy">
+                  {i + 1}
+                </span>
+                {s}
+              </li>
+            ),
+          )}
+        </ol>
+        <p className="mx-auto mt-4 max-w-lg text-sm text-muted-foreground">
+          First, confirm your mobile number — it takes a minute. It&apos;s how you&apos;ll sign in, and how we reach you if
+          you need help.
         </p>
         <Button className="mt-6" size="lg" onClick={() => requestLogin("MERCHANT", () => setStarted(true))}>
-          Start merchant onboarding
+          Start setting up my shop
         </Button>
       </div>
     );
