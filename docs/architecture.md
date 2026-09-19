@@ -195,7 +195,11 @@ could have been anything).
   number is vendor-set and manual; nothing auto-decrements, Babuki never
   sees the actual buyer/vendor transaction).
 - `consultancy_leads` (ticket ref, selected items, budget range, Razorpay
-  order id, deposit status).
+  order id, deposit status; plus `status` `new`/`contacted`/`quoted`/`won`/
+  `lost` and `admin_notes` for follow-up).
+- `contact_messages` (the Contact form's messages — stored, no longer
+  dropped) and `admin_users` / `admin_sessions` / `admin_actions` (see
+  "Admin console").
 
 ## API surface (`apps/api/src/routes/`, mounted on `api.babuki.com`)
 
@@ -357,6 +361,52 @@ sync.** The rules:
 - **Placeholders describe the field ("Your phone number", "Your email
   address"); they are never sample values** (no `98765 43210`, no
   `you@company.com`).
+
+## Admin console (`babuki.com/admin`)
+
+The founder's internal page: every enquiry with all the inputs the person
+filled in, so nothing depends on someone querying the database. Modelled on
+Home's founder-only admin (one allowlisted email, every change audited).
+
+- **Sections**: Overview (counts, "new" badges, latest activity, recent admin
+  changes) · Software estimates (`consultancy_leads`: name/email the customer
+  gave, phone with Call/WhatsApp, their business note, each thing they picked
+  with its price range — shown by plain-language name from the estimator
+  catalog — total, paid/**not paid yet**, timestamps) · Messages (Contact form)
+  · Shops (every shop-setup input, owner, UPI, subscription, item count) ·
+  Users (profile, what they came for, whether they've set a password). An
+  estimate is stored the moment someone presses "Pay ₹100 & book", so
+  **unpaid ones show up too** — warm leads who stopped at payment.
+- **Follow-up**: status + private notes on estimates and messages
+  (`PATCH /admin/estimates/:id`, `/admin/messages/:id`); each change writes an
+  `admin_actions` row (who, what, from → to).
+- **API** (`routes/admin.ts`, `routes/admin-data.ts`): `POST /admin/login`,
+  `/logout`, `GET /me`, `/overview`, `/estimates`, `/messages`, `/shops`,
+  `/users` (paged, filterable, `q` search with LIKE wildcards escaped).
+- **Auth**: who may sign in is the `ADMIN_EMAILS` allowlist in the API's env
+  (`scripts/deploy.sh`, default `ceo@me2us4u.com`; empty = nobody). The
+  password hash lives in `admin_users` and is set **only** with
+  `bash scripts/set-admin-password.sh <host> [email]` — you type the password
+  in your terminal, it travels over SSH on stdin, is hashed on the box
+  (min 12 chars) and never appears in argv, env, logs or chat; run it again to
+  reset. There is no signup path for admins. Login uses the same scrypt +
+  generic-error + 5-strikes/15-minute lock as customers. A removed allowlist
+  entry revokes its live session immediately.
+- **Separate from customer sessions**: own table (`admin_sessions`, token
+  HMAC'd under an `admin|` label), own cookie (`babuki_admin`, HttpOnly,
+  Secure, **SameSite=Strict**, 12 h), so a customer session can never be an
+  admin session. `adminOriginGuard` additionally refuses any request whose
+  `Origin` isn't `https://babuki.com` / `www` (the API's CORS otherwise trusts
+  every vendor subdomain); `http://localhost` is accepted only in
+  `APP_MODE=test`.
+- **Web**: `apps/web/src/app/admin` + `components/admin/*`; `noindex` and
+  `Disallow: /admin` in robots.txt. The page just reflects the API — the API
+  is the only real gate.
+- **Contact form**: `POST /contact` now stores the message and is rate-limited
+  per IP (5/hour, 40/day; `lib/rate-limit.ts`, keyed on the last
+  `X-Forwarded-For` hop, i.e. the one Nginx appended).
+- **Not built yet**: email/Telegram alerts on new enquiries (needs an SES
+  sender for babuki.com), CSV export, customer confirmation emails.
 
 ## Infrastructure (`infra/terraform/`)
 
