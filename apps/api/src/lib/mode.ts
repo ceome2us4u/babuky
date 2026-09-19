@@ -14,6 +14,17 @@ export const isTestMode = () => process.env.APP_MODE === "test";
 export const appMode = () => (isTestMode() ? "test" : "live");
 
 /**
+ * The message to show a user when something upstream failed (Razorpay, MSG91,
+ * missing config...). The real error is always logged for us. In LIVE users get
+ * only the friendly `fallback` — never provider JSON or variable names; in TEST
+ * mode the detail is returned so whoever is testing can see what actually broke.
+ */
+export function publicError(error: unknown, fallback: string): string {
+  console.error(`[${fallback}]`, error);
+  return isTestMode() && error instanceof Error ? error.message : fallback;
+}
+
+/**
  * Picks `<BASE>_TEST` or `<BASE>_LIVE` by mode. Both sets sit side by side in
  * the env, so a flip is one variable, no key juggling. FAILS CLOSED: a missing
  * (or still-placeholder) value for the active mode is an error — test mode can

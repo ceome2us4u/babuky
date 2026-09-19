@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { publicError } from "../lib/mode.js";
 import { OTP_LENGTH, OTP_TEST_CODE, sendOtp, verifyOtp } from "../lib/msg91.js";
 import { query } from "../lib/db.js";
 import { createSession, destroySession, SESSION_COOKIE, SESSION_TTL_SECONDS } from "../lib/session.js";
@@ -32,7 +33,7 @@ auth.post("/otp/send", async (c) => {
     // waiting for a text that will never arrive.
     return c.json(sent.testMode ? { ok: true, devOtpHint: OTP_TEST_CODE } : { ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to send OTP";
+    const message = publicError(error, "We couldn't send your OTP right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
   }
 });
@@ -57,7 +58,7 @@ auth.post("/otp/verify", async (c) => {
   try {
     verified = await verifyOtp(phone, otp);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to verify OTP";
+    const message = publicError(error, "We couldn't check your OTP right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
   }
 

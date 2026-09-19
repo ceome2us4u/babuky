@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import Razorpay from "razorpay";
 
-import { pick } from "./mode.js";
+import { isTestMode, pick } from "./mode.js";
 
 // Credentials are selected by APP_MODE (see ./mode.ts) — both sets sit side
 // by side in the env, same as the Home repo:
@@ -53,6 +53,20 @@ export async function createVendorSubscription(shopId: string) {
 // shape against Razorpay's own docs/a test call once real credentials
 // exist, before relying on this in production.
 export async function validateVpa(vpa: string): Promise<{ valid: boolean; customerName: string | null }> {
+  // Razorpay's sandbox doesn't offer VPA validation: with test keys the same
+  // call that is documented for live answers "The requested URL was not found
+  // on the server" (checked 2026-09-19 — other endpoints work fine with the
+  // same key). So in APP_MODE=test the check is SIMULATED and no request is
+  // made, the same "no real external calls in test mode" idea as the OTP. It
+  // follows Razorpay's own test-VPA convention: failure@razorpay fails, any
+  // other well-formed VPA succeeds with an obviously fake registered name.
+  if (isTestMode()) {
+    const local = vpa.split("@")[0];
+    return local.toLowerCase().startsWith("failure")
+      ? { valid: false, customerName: null }
+      : { valid: true, customerName: `TEST ACCOUNT (${local})` };
+  }
+
   const keyId = razorpayKeyId();
   const keySecret = razorpayKeySecret();
 

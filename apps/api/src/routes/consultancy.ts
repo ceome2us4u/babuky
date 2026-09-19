@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { query } from "../lib/db.js";
 import { getSessionUserPhone } from "../lib/auth-middleware.js";
+import { publicError } from "../lib/mode.js";
 import { createOrder, razorpayKeyId } from "../lib/razorpay.js";
 import { EMAIL_RE, LIMITS, NAME_RE, isIntInRange, str, textError } from "../lib/validation.js";
 
@@ -74,7 +75,7 @@ consultancy.post("/leads", async (c) => {
     // TEST/LIVE flip needs no frontend rebuild.
     return c.json({ ticketRef, order, keyId: razorpayKeyId() }, 201);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to create consultancy lead";
+    const message = publicError(error, "We couldn't start your booking payment right now. Please try again in a moment.");
     return c.json({ error: message }, 503);
   }
 });
