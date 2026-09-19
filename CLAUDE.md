@@ -154,4 +154,5 @@ should never have to re-derive this system from scratch.
 Full rule and reasoning: `docs/architecture.md`. Short version: nothing
 here imports from, deploys to, or shares state/credentials/DNS/IAM with
 the Home repo or its AWS resources, except the MSG91/Razorpay vendor
-accounts (Babuki uses its own plan/template IDs inside them).
+accounts (Babuki uses its own Razorpay plan IDs; for now it also uses Home's
+DLT-approved MSG91 OTP template, until it has its own — see `docs/architecture.md`).

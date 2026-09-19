@@ -42,18 +42,35 @@ doesn't extend to mobile clients cleanly).
 babuky/
   apps/
     api/                 Hono backend — api.babuki.com. ALL business logic
-      src/lib/             db.ts, session.ts, msg91.ts, razorpay.ts,
-                            storage.ts, require-shop-owner.ts, constants.ts,
-                            auth-middleware.ts (Hono cookie helper), env.ts
-      src/routes/           auth.ts, shops.ts (+ catalog), consultancy.ts,
-                            geocode.ts, webhooks.ts, contact.ts
+      src/lib/             db.ts, session.ts, auth-middleware.ts (Hono cookie
+                            helper), mode.ts (APP_MODE switch, pick(), publicError),
+                            password.ts (scrypt + password rules), otp-proof.ts
+                            (signed phone-check receipts), msg91.ts (OTP codes via
+                            MSG91 Flow), razorpay.ts (orders, subscriptions,
+                            webhook signature), storage.ts (S3), require-shop-owner.ts,
+                            slug-hold.ts (unpaid-draft web-address rules),
+                            industries.ts + search.ts (shop kinds; finder radius/
+                            places), validation.ts (input rules), rate-limit.ts,
+                            admin-auth.ts (admin sessions/guards), constants.ts, env.ts
+      src/routes/           auth.ts, shops.ts (+ catalog, UPI confirm, delete draft),
+                            consultancy.ts, geocode.ts (reverse + place search),
+                            webhooks.ts, contact.ts, admin.ts + admin-data.ts
+      src/scripts/          set-admin-password.ts (run on the box by
+                             scripts/set-admin-password.sh)
       src/server.ts          Hono app, CORS (matches *.babuki.com), mounts
       db/migrations/        numbered raw-SQL migrations, no ORM — apps/api
-                             owns the schema
+                             owns the schema: 0001 users/sessions · 0002 shops +
+                             subscriptions (PostGIS) · 0003 consultancy_leads ·
+                             0004 catalog · 0005 passwords · 0006 admin console +
+                             contact_messages + lead follow-up · 0007 otp_codes/
+                             otp_sends
     web/                  Next.js 14 (App Router, TS, Tailwind v4) — PAGES ONLY.
       src/app/(site)/      marketing chrome (Navbar + Footer): / (home),
-                             /shops (merchant onboarding + nearby), /estimator,
-                             /terms, /contact, /dashboard (vendor catalog)
+                             /shops (merchant onboarding + the shop finder),
+                             /estimator, /terms, /contact, /dashboard (vendor
+                             catalog)
+      src/app/admin/        the founder's admin console (noindex, no marketing
+                             chrome) — see "Admin console"
       src/app/store/[slug]/ the vendor storefront, own light layout (no
                              marketing nav). Server-rendered per request.
       next.config.mjs       slug.babuki.com -> /store/slug via a `beforeFiles`
@@ -61,15 +78,22 @@ babuky/
                              it). Apex/www and static assets are left alone.
                              `slug.localhost` works in dev. NOT middleware —
                              see the deploy gotchas below.
-      src/components/       Navbar/Footer/Logo/AuthModal, ui/* (shadcn-style
-                             Radix primitives), shops/*, estimator/*,
-                             store/* (Storefront, CartDialog), dashboard/*
-                             (Dashboard, CatalogManager, ItemDialog)
+      src/components/       Navbar/Footer/Logo/AuthModal, auth/* (OtpStep,
+                             PasswordField), ui/* (shadcn-style Radix
+                             primitives), shops/* (MerchantFlow, BuyerFlow,
+                             PlaceSearch, IndustryPicker, UpiSetup, maps),
+                             estimator/*, store/* (Storefront, CartDialog),
+                             dashboard/* (Dashboard, CatalogManager, ItemDialog),
+                             admin/* (AdminApp + one tab per section)
       src/lib/cart.ts       per-shop localStorage cart, stock-capped, grouped
                              by category, re-validated against the live catalog
       src/lib/store-api.ts  server-side fetch of the public storefront data
                              (loopback via API_INTERNAL_URL set in PM2)
       src/lib/upi.ts        UPI intent builder (owner-confirmed values only)
+      src/lib/validate.ts   input rules (mirrors apps/api/src/lib/validation.ts)
+      src/lib/industries.ts kinds of shop (mirrors the API's list)
+      src/lib/store-url.ts  a shop's own store address (slug.babuki.com)
+      src/lib/admin-api.ts  types for the admin console's API
       src/lib/api.ts        apiUrl()/apiFetch() -> NEXT_PUBLIC_API_URL
                              (api.babuki.com), credentials included so the
                              session cookie rides along. No server logic, no
@@ -87,7 +111,10 @@ babuky/
     terraform/            all AWS resources (VPC, EC2, S3, IAM, Route 53, secrets)
     nginx/babuki.conf     api.babuki.com -> :8000, babuki.com/*.babuki.com -> :3000
     pm2/ecosystem.config.js   two PM2 apps: babuki-api, babuki-web
-  scripts/deploy.sh       build + ship + migrate + (re)start both, run from this machine
+  scripts/                deploy.sh (build + ship + migrate + restart both, run from
+                          this machine), set-app-mode.sh (TEST/LIVE switch),
+                          set-admin-password.sh (owner sets the admin password),
+                          catchup-first-boot.sh
 ```
 
 **Why this split, concretely**: `apps/web` has zero server-side code — it
@@ -216,6 +243,9 @@ could have been anything).
 - `contact_messages` (the Contact form's messages — stored, no longer
   dropped) and `admin_users` / `admin_sessions` / `admin_actions` (see
   "Admin console").
+- `otp_codes` (one live phone code per phone + purpose, only a keyed hash, 10-min
+  expiry, attempt counter) and `otp_sends` (a log of SMS sends that backs the
+  per-phone limits) — see the OTP notes in the API surface.
 - **Industries** (`shops.industry` is plain text; lists in
   `apps/api/src/lib/industries.ts` ↔ `apps/web/src/lib/industries.ts`, keep in
   sync): ~75 kinds of business in 11 groups (Food & Drink, Grocery & Daily
@@ -554,12 +584,13 @@ Terraform would then manage.
 
 ## What's real vs. still placeholder
 
-- **Real**: the entire `apps/api` backend above (once deployed) — schema,
-  auth, catalog, PostGIS search, Razorpay integration, infra.
+- **Real and live** (production runs `APP_MODE=live`, see "Current state"): the
+  entire `apps/api` backend above — schema, phone + password auth, catalog,
+  PostGIS search, Razorpay integration, admin console, infra.
 - **Real, ported from the Lovable mock** (`babuki.zip`, reference only —
   its TanStack stack was not adopted): Home, Hyperlocal Shops (merchant
   4-step onboarding + Shops Nearby with Leaflet), Software Estimator,
-  Terms, the OTP login modal and the burgundy/gold theme — all wired to
+  Terms, the login / sign-up / forgot-password modal and the burgundy/gold theme — all wired to
   `apps/api` (OTP, slug check, shop create, subscription Checkout, owner-confirmed
   UPI ID, nearby search, consultancy lead + ₹100 Checkout).
   Deliberate departures from the mock: the mock's fake "Razorpay
@@ -573,7 +604,8 @@ Terraform would then manage.
   states, cart grouped by category, UPI QR with the cart total for Direct
   Order, WhatsApp/call handoff otherwise) and the vendor dashboard at
   `/dashboard` (categories, items with S3 photo upload, stock, hide/show,
-  Display Only ↔ Direct Order, UPI verification, subscribe/renew). A
+  Display Only ↔ Direct Order, UPI ID confirmation, subscribe/renew, delete an
+  unpublished shop). A
   vendor can build the catalog while the shop is still `draft`; it goes
   public when the subscription webhook activates it. Photo uploads need the
   bucket's CORS rule (`aws_s3_bucket_cors_configuration` in `storage.tf`,
@@ -589,7 +621,13 @@ Terraform would then manage.
   `scripts/deploy.sh`) until Babuki has its own DLT header + template; real SMS
   and the LIVE Razorpay keys both follow `APP_MODE` (one switch). LIVE
   Razorpay (key secret, webhook secret, plan `plan_TdVzzDQoYIGSj0`) is
-  already real. The **TEST** Razorpay set (`babuki/prod/razorpay-*-test`:
-  key id, key secret, webhook secret, and a ₹500/mo plan created in
-  Razorpay's Test mode) is empty — test-mode payments fail closed until it's
-  filled in.
+  already real. The **TEST** Razorpay set (`babuki/prod/razorpay-*-test`) is
+  filled in too, so test mode works if the box is ever flipped back.
+- **Known gaps / not built yet** (as of 2026-09-19): the estimator rebuild (plan:
+  server-side price list, confirmed booking, richer page — not started); alerts
+  (email/Telegram) when an enquiry arrives — enquiries are only visible in the
+  admin console; real bank-verified UPI names (needs RazorpayX); a cap of one
+  unpublished shop per owner (today an owner can create several unpaid drafts —
+  none is public and none goes live without its own ₹500 payment); the admin
+  password itself (the owner sets it with `scripts/set-admin-password.sh`, until
+  then nobody can sign in to `/admin`); Babuki's own DLT header + OTP template.
