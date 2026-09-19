@@ -52,6 +52,28 @@ export function phoneError(digits: string): string | null {
   return null;
 }
 
+// Same rules as passwordError() in apps/api/src/lib/password.ts (which also
+// rejects a short list of very common passwords).
+export const PASSWORD_MIN = 8;
+export const PASSWORD_MAX = 64;
+
+/** The rules a new password has to meet, each with whether `v` currently meets it. */
+export function passwordChecks(v: string, phoneDigits = ""): { label: string; ok: boolean }[] {
+  return [
+    { label: `At least ${PASSWORD_MIN} characters`, ok: v.length >= PASSWORD_MIN },
+    { label: "A letter and a number", ok: /[A-Za-z]/.test(v) && /\d/.test(v) },
+    ...(phoneDigits.length === 10
+      ? [{ label: "Not your phone number", ok: !v.includes(phoneDigits) }]
+      : []),
+  ];
+}
+
+/** null when fine (or still being typed); otherwise what to tell the user. */
+export function passwordError(v: string, phoneDigits = ""): string | null {
+  if (v.length === 0) return null;
+  return passwordChecks(v, phoneDigits).find((c) => !c.ok)?.label ?? null;
+}
+
 export function nameError(v: string, what = "name"): string | null {
   const s = v.trim();
   if (!s) return null; // emptiness is reported by the required-field check
